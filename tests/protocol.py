@@ -96,7 +96,7 @@ def encode(args, values):
 
 class Peer:
     def __init__(self, binary=BINARY, versions=(5, 2), layer=True, missing=None,
-                 animations="enabled: false"):
+                 animations="enabled: false", refresh_rates=(60000, 144000)):
         self.temp = tempfile.TemporaryDirectory(prefix="slopwm-protocol-")
         self.config = Path(self.temp.name) / "config.yml"
         self.config.write_text(self.configuration(animations=animations))
@@ -112,6 +112,8 @@ class Peer:
         self.fds = []
         self.objects = {1: ("wl_display", 1)}
         self.bound = {}
+        self.wl_outputs = {}
+        self.refresh_rates = refresh_rates
         self.registry = None
         self.next_id = 0xFF000000
         self.history = []
@@ -263,6 +265,11 @@ class Peer:
             self.destroyed.discard(new)
             if global_name == "wl_output" and version >= 4:
                 self.event(new, "name", f"TEST-{number}")
+            if global_name == "wl_output":
+                self.wl_outputs[number] = new
+                self.event(new, "mode", 1, 1000, 800, self.refresh_rates[number - 10])
+                if version >= 2:
+                    self.event(new, "done")
             if global_name == "wl_shm":
                 self.event(new, "format", 0)
                 self.event(new, "format", 1)
@@ -410,11 +417,11 @@ class Peer:
     def geometry(self, window):
         return self.positions[self.nodes[window]] + self.dimensions[window]
 
-    def animate(self, observe=lambda: None):
+    def animate(self, observe=lambda: None, quiet_interval=0.03):
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             if not self.dirty:
-                self.read(0.03)
+                self.read(quiet_interval)
             if not self.dirty:
                 return
             self.manage()
@@ -446,6 +453,45 @@ class RegressionTests(unittest.TestCase):
         peer = Peer(**kwargs)
         self.addCleanup(peer.close)
         return peer
+
+    def test_automatic_refresh_pacing_ignores_inactive_and_noncurrent_modes(self):
+        # The idle 200 Hz output must not drive an animation on the 10 Hz one.
+        p = self.peer(animations="duration_ms: 120", refresh_rates=(10000, 200000))
+        p.setup()
+        window = p.window()
+        p.manage()
+        p.press(16)
+        p.read(0.025)
+        self.assertFalse(p.dirty)
+        # Preferred, but not current, modes must leave the cadence unchanged.
+        p.event(p.wl_outputs[10], "mode", 2, 1000, 800, 200000)
+        p.event(p.wl_outputs[10], "done")
+        p.read(0.025)
+        self.assertFalse(p.dirty)
+        # A live current-mode change updates pacing without needing a manage.
+        p.event(p.wl_outputs[10], "mode", 1, 1000, 800, 120000)
+        p.event(p.wl_outputs[10], "done")
+        p.animate()
+        self.assertEqual(p.geometry(window), (252, 2, 496, 796))
+        p.press(5)
+        p.press(16)
+        p.animate()
+        self.assertEqual(p.geometry(window), (1252, 2, 496, 796))
+        self.assertFalse(p.dirty)
+        p.shutdown()
+
+    def test_automatic_pacing_without_reported_refresh_and_manual_override(self):
+        for settings in ["duration_ms: 80", "duration_ms: 80, frame_interval_ms: auto",
+                         "duration_ms: 80, frame_interval_ms: 5"]:
+            with self.subTest(settings=settings):
+                p = self.peer(animations=settings, refresh_rates=(0, 0))
+                p.setup()
+                window = p.window()
+                p.manage()
+                p.press(16)
+                p.animate()
+                self.assertEqual(p.geometry(window), (252, 2, 496, 796))
+                p.shutdown()
 
     def test_animation_progress_retarget_and_idle_without_resize_spam(self):
         p = self.peer(animations="duration_ms: 120, frame_interval_ms: 5", versions=(4, 1))

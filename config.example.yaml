@@ -29,9 +29,11 @@ animations:
   # Default: 200.
   duration_ms: 200
 
-  # Integer milliseconds between frame requests, 1 through 1000. Default: 16.
+  # auto follows the current display refresh rate (default). Unspecified refresh
+  # falls back to 60 Hz. When multiple outputs animate, the fastest sets cadence.
+  # Optional override: integer milliseconds between requests, 1 through 1000.
   # Frames stop when animations finish; idle sessions have no timer wakeups.
-  frame_interval_ms: 16
+  frame_interval_ms: auto
 
 # Window borders. Omitting this section or any field uses its default.
 # Both colors accept alpha via "#RRGGBBAA".

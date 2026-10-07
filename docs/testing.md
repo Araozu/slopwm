@@ -26,6 +26,10 @@ also run with animations explicitly disabled. The peer uses a private socket
 and temporary config;
 it does not connect to the user's session.
 
+Automatic pacing scenarios also check current-mode changes, inactive monitors,
+noncurrent advertised modes, unknown refresh rates, and manual overrides. Pure
+timing tests cover fractional rates and mixed-monitor interval selection.
+
 Run only those scenarios with:
 
 ```sh
@@ -70,6 +74,7 @@ responses, or compositor input delivery; check those here.
 | Reload valid config by binding and SIGHUP, then try invalid/deleted config | Bindings, borders, growth direction, and repeat update at a completed sequence; widths/workspaces/scroll persist; failed reload retains current settings and reports the error |
 | Scroll, center, reorder, stack/unstack, and resize with animations enabled; interrupt transitions rapidly | Motion finishes at the normal layout; focus responds immediately; dialogs and previews follow displayed tiles; confirmed application content remains clipped |
 | Reload duration/frame interval during motion, disable animations, then leave the session idle | Timing changes apply without jumps; disabling reaches the final layout; completed transitions cause no frame wakeups |
+| Animate on 60 Hz and faster outputs; change modes while an animation runs | Automatic cadence follows the fastest animated output; an idle faster monitor does not affect pacing; mode changes and output removal update refresh metadata |
 | Connect another keyboard after reload | Existing and newly connected keyboards receive the new repeat rate/delay; WM shortcuts do not repeat |
 | Remove an output carrying stacks, workspaces, and dialogs, then reconnect it | Families recover together on a surviving output; focus has no stale references; workspace groups and scroll remain coherent |
 | Invoke `quit`, SIGTERM, and SIGINT in separate runs; attach a replacement WM | Both managers finish and clean up; River and applications remain alive; a replacement WM can attach |
@@ -90,3 +95,8 @@ Animation validation on 2026-10-07 passed formatting, compilation, 46 unit tests
 a temporary `LIBRARY_PATH` directory pointing to the installed `libxkbcommon.so.0`,
 because this environment lacks the development linker file. No controlled River
 session or visual animation checks ran in this headless environment.
+
+Automatic-refresh pacing validation on 2026-10-07 passed formatting,
+compilation, 48 unit tests, 17 protocol scenarios, and offline example config
+validation, using the same temporary linker directory. A controlled River
+session and visual/vsync checks were not run in this headless environment.

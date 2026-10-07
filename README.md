@@ -120,7 +120,7 @@ cp config.example.yaml "${XDG_CONFIG_HOME:-$HOME/.config}/slopwm/config.yml"
 
 ```yaml
 keyboard: {repeat_rate: 40, repeat_delay: 400}
-animations: {enabled: true, duration_ms: 200, frame_interval_ms: 16}
+animations: {enabled: true, duration_ms: 200}
 border: {width: 2, color: "#ffffff", unfocused_color: "#808080ff"}
 scrolling: {growth_direction: left, default_width_percent: 50}
 monitors:
@@ -176,8 +176,16 @@ in applications; window-manager shortcuts trigger once per press.
 `animations.enabled` enables eased scrolling, column/stack movement, and tile
 resize transitions (default `true`). `animations.duration_ms` sets their duration
 in milliseconds (default `200`, range `0`–`60000`); `0` or `enabled: false` applies
-changes immediately. `animations.frame_interval_ms` sets the interval between
-frame requests (default `16` ms, range `1`–`1000`). Omitted fields use defaults.
+changes immediately. Frame pacing automatically uses the display's current
+refresh rate. If multiple displays have running animations, the fastest sets
+the shared update cadence; idle displays do not affect it. Outputs that report
+no refresh rate use a 60 Hz fallback. Live refresh-rate changes update pacing.
+This is timer-based pacing, without a compositor vsync guarantee.
+
+`animations.frame_interval_ms` defaults to `auto`. It can optionally override
+pacing with an integer interval from `1` through `1000` ms. Existing numeric
+settings keep their meaning; remove the field or set it to `auto` to use refresh
+detection. Omitted fields use defaults.
 Rapid actions continue from the last displayed geometry, and idle sessions have
 no animation timer wakeups. Focus changes immediately; the spawn preview follows
 the animated tile. New windows appear at their allocation, and closing windows
