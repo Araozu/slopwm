@@ -42,15 +42,16 @@ impl Seat {
     }
 
     pub(super) fn do_actions(&mut self, wm: &mut WindowManager, proxy: &RiverWindowManagerV1) {
+        // Locked sessions must not run queued bindings. River may still
+        // deliver presses while locked, so discard them instead.
+        if wm.session_locked {
+            self.pending_actions.clear();
+            return;
+        }
         while let Some(action) = self.pending_actions.pop_front() {
             match action {
                 Action::Spawn(argv) => {
-                    // Keep protocol logging out of spawned applications.
-                    if let Err(error) = std::process::Command::new(&argv[0])
-                        .args(&argv[1..])
-                        .env_remove("WAYLAND_DEBUG")
-                        .spawn()
-                    {
+                    if let Err(error) = spawn_reaped(&argv) {
                         eprintln!("Failed to spawn {:?}: {error}", argv[0]);
                     }
                 }
@@ -118,6 +119,8 @@ impl Seat {
     }
 
     pub(super) fn sync_focus(&mut self, wm: &WindowManager) {
+        // Shared focus is intentional: every seat follows the active output's
+        // selected window.
         let focused = wm
             .active_output
             .as_ref()
@@ -146,6 +149,31 @@ impl Seat {
     }
 }
 
+fn spawn_reaped(argv: &[String]) -> std::io::Result<u32> {
+    // Dropping a `Child` without waiting leaves a zombie: the kernel keeps
+    // the exit status until the parent reaps it. Detach a small waiter
+    // thread per child so short-lived launcher commands cannot accumulate.
+    let mut child = std::process::Command::new(&argv[0])
+        .args(&argv[1..])
+        // Keep protocol logging out of spawned applications.
+        .env_remove("WAYLAND_DEBUG")
+        .spawn()?;
+    let pid = child.id();
+    if std::thread::Builder::new()
+        .name("slopwm-spawn-reaper".into())
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            let _ = child.wait();
+        })
+        .is_err()
+    {
+        // Thread creation failed; blocking here would stall the manage
+        // sequence, so the child is left for process-exit cleanup.
+        eprintln!("Failed to detach reaper for {:?}", argv[0]);
+    }
+    Ok(pid)
+}
+
 impl Dispatch<RiverSeatV1, ()> for AppData {
     fn event(
         state: &mut Self,
@@ -171,5 +199,31 @@ impl Dispatch<RiverSeatV1, ()> for AppData {
             | Event::OpDelta { .. }
             | Event::OpRelease => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn spawned_children_are_reaped_without_lingering_zombies() {
+        let pid = spawn_reaped(&["true".into()]).expect("spawn true");
+        // A zombie still has a /proc entry; a reaped child disappears.
+        let path = format!("/proc/{pid}");
+        let start = Instant::now();
+        while std::path::Path::new(&path).exists() {
+            assert!(
+                start.elapsed() < Duration::from_secs(2),
+                "child {pid} still present after 2s"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn spawn_reports_missing_executables_instead_of_panicking() {
+        assert!(spawn_reaped(&["slopwm-definitely-missing-binary".into()]).is_err());
     }
 }

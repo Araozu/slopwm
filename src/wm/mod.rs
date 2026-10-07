@@ -73,12 +73,18 @@ impl WindowManager {
         for window in &mut self.windows {
             window.apply_requests();
         }
+        // Application maximize requests can hide the focused row; move focus
+        // to the visible soft row before seats sync focus to River.
+        self.reconcile_soft_fullscreen_focus();
         // Seats are temporarily separated so actions can update manager policy.
         let mut seats = std::mem::take(&mut self.seats);
         for seat in seats.values_mut() {
             seat.init_bindings(river_xkb, qh, &self.config.keybindings);
             if let Some(window) = seat.interacted.take() {
-                self.select_window(&window);
+                // Locked sessions ignore click-to-focus alongside bindings.
+                if !self.session_locked {
+                    self.select_window(&window);
+                }
             }
             seat.sync_focus(self);
             seat.do_actions(self, proxy);
@@ -251,6 +257,17 @@ impl WindowManager {
         });
     }
 
+    fn set_session_locked(&mut self, locked: bool) {
+        self.session_locked = locked;
+        if locked {
+            self.preselection = None;
+            for seat in self.seats.values_mut() {
+                seat.interacted = None;
+                seat.pending_actions.clear();
+            }
+        }
+    }
+
     fn init_new_windows(&mut self) {
         if self.active_output.is_none() {
             return;
@@ -313,11 +330,8 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
                 state.shm.as_ref().expect("wl_shm missing"),
                 qh,
             ),
-            Event::SessionLocked => {
-                state.wm.session_locked = true;
-                state.wm.preselection = None;
-            }
-            Event::SessionUnlocked => state.wm.session_locked = false,
+            Event::SessionLocked => state.wm.set_session_locked(true),
+            Event::SessionUnlocked => state.wm.set_session_locked(false),
             Event::Window { id } => state.wm.windows.push_back(Window::new(id, qh)),
             Event::Output { id } => {
                 if state.wm.active_output.is_none() {

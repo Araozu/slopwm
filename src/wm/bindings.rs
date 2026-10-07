@@ -74,6 +74,11 @@ impl Dispatch<RiverXkbBindingV1, ObjectId> for AppData {
         _qh: &QueueHandle<Self>,
     ) {
         use crate::protocol::river_xkb_binding_v1::Event;
+        // While locked, drop presses instead of queueing them. Queued actions
+        // from before the lock are discarded separately before they can run.
+        if state.wm.session_locked {
+            return;
+        }
         let seat = state.wm.seats.get_mut(data).expect("Seat not found");
         let binding = seat
             .xkb_bindings

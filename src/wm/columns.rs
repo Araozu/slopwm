@@ -166,6 +166,58 @@ impl WindowManager {
         }
     }
 
+    pub(super) fn reconcile_soft_fullscreen_focus(&mut self) {
+        // An application maximize request marks a row soft fullscreen, which
+        // hides its siblings during layout. If the hidden row holds keyboard
+        // focus, typing would continue into an invisible tile. Move focus to
+        // the visible soft row instead, mirroring sibling-focus restoration.
+        let output_ids: Vec<ObjectId> = self.outputs.keys().cloned().collect();
+        let mut corrections = Vec::new();
+        for output_id in &output_ids {
+            let focused_workspaces: Vec<(u64, Option<RiverWindowV1>)> = self.outputs[output_id]
+                .workspaces
+                .entries
+                .iter()
+                .map(|workspace| (workspace.id, workspace.focused.clone()))
+                .collect();
+            for (workspace_id, focused) in focused_workspaces {
+                let Some(focused_proxy) = focused else {
+                    continue;
+                };
+                let Some(focused_index) = self
+                    .windows
+                    .iter()
+                    .position(|window| window.proxy == focused_proxy)
+                else {
+                    continue;
+                };
+                let columns = self.column_indices(output_id, workspace_id);
+                if let Some(replacement) = soft_focus_replacement(
+                    &columns,
+                    |index| self.windows[index].tile_width.soft_fullscreen,
+                    focused_index,
+                ) {
+                    corrections.push((
+                        output_id.clone(),
+                        workspace_id,
+                        self.windows[replacement].proxy.clone(),
+                    ));
+                }
+            }
+        }
+        for (output_id, workspace_id, proxy) in corrections {
+            if let Some(output) = self.outputs.get_mut(&output_id)
+                && let Some(workspace) = output
+                    .workspaces
+                    .entries
+                    .iter_mut()
+                    .find(|workspace| workspace.id == workspace_id)
+            {
+                workspace.focused = Some(proxy);
+            }
+        }
+    }
+
     fn column_indices(&self, output: &ObjectId, workspace: u64) -> Vec<Vec<usize>> {
         let mut columns: Vec<Vec<usize>> = Vec::new();
         for (index, window) in self.windows.iter().enumerate() {
@@ -431,6 +483,16 @@ fn adjacent_index(current: usize, len: usize, previous: bool) -> Option<usize> {
     next.filter(|next| current < len && *next < len)
 }
 
+fn soft_focus_replacement(
+    columns: &[Vec<usize>],
+    is_soft: impl Fn(usize) -> bool,
+    focused: usize,
+) -> Option<usize> {
+    let rows = columns.iter().find(|rows| rows.contains(&focused))?;
+    let selected = rows.iter().copied().find(|index| is_soft(*index))?;
+    (selected != focused).then_some(selected)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,5 +519,36 @@ mod tests {
                 assert_eq!(adjacent_index(current - 1, len, false), Some(current));
             }
         }
+    }
+
+    #[test]
+    fn hidden_sibling_focus_moves_to_visible_soft_row() {
+        let columns = vec![vec![0, 1], vec![2]];
+        // Focused row hidden by its sibling's maximize request.
+        assert_eq!(
+            soft_focus_replacement(&columns, |index| index == 0, 1),
+            Some(0)
+        );
+        // Focus already on the visible soft row stays put.
+        assert_eq!(
+            soft_focus_replacement(&columns, |index| index == 0, 0),
+            None
+        );
+        // Columns without soft fullscreen keep their focus.
+        assert_eq!(
+            soft_focus_replacement(&columns, |index| index == 0, 2),
+            None
+        );
+        assert_eq!(soft_focus_replacement(&columns, |_| false, 1), None);
+        // Layout shows the first soft row, so focus follows it.
+        assert_eq!(
+            soft_focus_replacement(&columns, |index| index != 2, 1),
+            Some(0)
+        );
+        // Stale focus outside every column is left alone.
+        assert_eq!(
+            soft_focus_replacement(&columns, |index| index == 0, 7),
+            None
+        );
     }
 }
