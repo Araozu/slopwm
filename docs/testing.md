@@ -18,7 +18,12 @@ and object lifetimes, and always completes manage/render sequences. It checks
 reload success/failure, current and hotplugged keyboard repeat, locked bindings,
 layer focus restoration, panel reservations, parent/nested dialogs, render-only
 resizing, output/workspace moves, negotiated versions, and graceful shutdown with
-either manager finishing first. It uses a private socket and temporary config;
+either manager finishing first. Animation scenarios check intermediate motion,
+retargeting, stacking, nested dialogs at viewport edges, preview placement,
+confirmed-content clipping, reload/disable behavior, idle wakeups, locking,
+fullscreen, output removal, and shutdown during a transition. Existing scenarios
+also run with animations explicitly disabled. The peer uses a private socket
+and temporary config;
 it does not connect to the user's session.
 
 Run only those scenarios with:
@@ -63,6 +68,8 @@ responses, or compositor input delivery; check those here.
 | Preselect an insertion direction, then open a dialog and a regular window | Dialog leaves the choice and preview intact; the first regular window consumes it |
 | Resize an application that rounds or rejects proposed sizes | Confirmed content is clipped to its allocation; later render-only sequences recenter dialogs without stale geometry |
 | Reload valid config by binding and SIGHUP, then try invalid/deleted config | Bindings, borders, growth direction, and repeat update at a completed sequence; widths/workspaces/scroll persist; failed reload retains current settings and reports the error |
+| Scroll, center, reorder, stack/unstack, and resize with animations enabled; interrupt transitions rapidly | Motion finishes at the normal layout; focus responds immediately; dialogs and previews follow displayed tiles; confirmed application content remains clipped |
+| Reload duration/frame interval during motion, disable animations, then leave the session idle | Timing changes apply without jumps; disabling reaches the final layout; completed transitions cause no frame wakeups |
 | Connect another keyboard after reload | Existing and newly connected keyboards receive the new repeat rate/delay; WM shortcuts do not repeat |
 | Remove an output carrying stacks, workspaces, and dialogs, then reconnect it | Families recover together on a surviving output; focus has no stale references; workspace groups and scroll remain coherent |
 | Invoke `quit`, SIGTERM, and SIGINT in separate runs; attach a replacement WM | Both managers finish and clean up; River and applications remain alive; a replacement WM can attach |
@@ -77,3 +84,9 @@ On 2026-10-07, formatting, compilation, 38 unit tests, nine protocol scenarios,
 and offline validation of 33 example bindings passed. The controlled River
 checklist above was **not run** in this headless environment. Real wallpaper,
 launcher, lock, physical input/output, and visual behavior remain pending.
+
+Animation validation on 2026-10-07 passed formatting, compilation, 46 unit tests,
+15 protocol scenarios, and offline example configuration validation. Linking used
+a temporary `LIBRARY_PATH` directory pointing to the installed `libxkbcommon.so.0`,
+because this environment lacks the development linker file. No controlled River
+session or visual animation checks ran in this headless environment.

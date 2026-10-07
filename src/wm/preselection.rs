@@ -92,7 +92,7 @@ impl WindowManager {
                     border: 0,
                 }
             } else {
-                window.tile?
+                window.animation.tile()?
             }
         } else {
             // An empty output has no anchor yet; preview its initial tile.

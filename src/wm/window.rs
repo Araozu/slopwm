@@ -3,6 +3,7 @@
 
 //! Window geometry, lifecycle state, and window events.
 
+use std::time::{Duration, Instant};
 use wayland_backend::client::ObjectId;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 
@@ -13,6 +14,7 @@ use crate::protocol::{
 };
 
 use super::{
+    animation::TileAnimation,
     layout::{TileGeometry, TileWidth},
     output::OutputGeometry,
 };
@@ -40,6 +42,8 @@ pub(super) struct Window {
     pub(super) soft_fullscreen_requested: Option<bool>,
     maximized: bool,
     visible: bool,
+    pub(super) animation: TileAnimation,
+    animation_context: Option<(ObjectId, u64, OutputGeometry)>,
 }
 
 impl Window {
@@ -67,6 +71,8 @@ impl Window {
             soft_fullscreen_requested: None,
             maximized: false,
             visible: true,
+            animation: TileAnimation::default(),
+            animation_context: None,
         }
     }
 
@@ -91,6 +97,8 @@ impl Window {
         }
         self.requested_dimensions = None;
         self.tile = None;
+        self.animation.clear();
+        self.animation_context = None;
     }
 
     pub(super) fn apply_requests(&mut self) {
@@ -142,21 +150,37 @@ impl Window {
         }
     }
 
-    pub(super) fn render(&mut self, output: Option<OutputGeometry>, color: [u32; 4]) {
+    pub(super) fn render(
+        &mut self,
+        target: Option<TileGeometry>,
+        output: Option<OutputGeometry>,
+        color: [u32; 4],
+        now: Instant,
+        duration: Duration,
+    ) {
         let Some(output) = output else {
+            self.animation.clear();
+            self.animation_context = None;
             self.set_visible(false);
             return;
         };
+        let context = self.output.clone().map(|id| (id, self.workspace, output));
+        if context != self.animation_context {
+            self.animation.clear();
+            self.animation_context = context;
+        }
         if self.fullscreen && self.fullscreen_output.is_some() {
+            self.animation.clear();
             self.set_visible(true);
             return;
         }
-        let intersection = self.tile.and_then(|tile| tile.intersection(output));
+        let tile = self.animation.update(target, now, duration);
+        let intersection = tile.and_then(|tile| tile.intersection(output));
         let Some((x, y, width, height)) = intersection else {
             self.set_visible(false);
             return;
         };
-        let tile = self.tile.unwrap();
+        let tile = tile.unwrap();
         let (content_width, content_height) = tile.content_size();
         let (node_x, node_y) = tile.content_position();
         self.node.set_position(node_x, node_y);

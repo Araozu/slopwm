@@ -3,6 +3,7 @@
 
 //! Window-manager state and manage/render sequence orchestration.
 
+mod animation;
 mod bindings;
 mod columns;
 mod dialogs;
@@ -17,6 +18,7 @@ mod window;
 mod workspaces;
 
 use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
 
 use wayland_backend::client::ObjectId;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
@@ -48,6 +50,8 @@ pub(crate) struct WindowManager {
     preselection: Option<Preselection>,
     overlay: Option<Overlay>,
     session_locked: bool,
+    next_animation_frame: Option<Instant>,
+    animation_frame_pending: bool,
     pub(crate) pending_config: Option<Config>,
     pub(crate) reload_requested: bool,
     pub(crate) quitting: bool,
@@ -68,6 +72,10 @@ impl WindowManager {
         layer_shell: Option<&RiverLayerShellV1>,
         qh: &QueueHandle<AppData>,
     ) {
+        // A render is guaranteed after manage; wait for it before asking for
+        // another animation frame, including while applications configure.
+        self.next_animation_frame = None;
+        self.animation_frame_pending = false;
         self.apply_pending_config();
         self.configure_keyboards();
         self.remove_windows();
@@ -121,6 +129,12 @@ impl WindowManager {
         shm: &wayland_client::protocol::wl_shm::WlShm,
         qh: &QueueHandle<AppData>,
     ) {
+        let now = Instant::now();
+        let duration = if self.config.animations.enabled && !self.session_locked {
+            Duration::from_millis(u64::from(self.config.animations.duration_ms))
+        } else {
+            Duration::ZERO
+        };
         // Dialog dimensions may change in a render-only sequence.
         self.layout_dialogs();
         let focused = self
@@ -137,7 +151,16 @@ impl WindowManager {
             });
         let (focused_color, unfocused_color) =
             (self.config.border.color, self.config.border.unfocused_color);
-        for window in &mut self.windows {
+        let mut render_order: Vec<_> = self
+            .windows
+            .iter()
+            .enumerate()
+            .filter(|(_, window)| !window.dialog)
+            .map(|(index, _)| index)
+            .collect();
+        render_order.extend(self.dialog_order());
+        for index in render_order {
+            let window = &self.windows[index];
             let output = window
                 .output
                 .as_ref()
@@ -155,7 +178,15 @@ impl WindowManager {
             } else {
                 unfocused_color
             };
-            window.render(output, color);
+            // Dialogs follow their parent's displayed allocation, including
+            // clamping and visibility at viewport edges. A second position
+            // transition would lag behind a moving parent on every frame.
+            let (target, duration) = if window.dialog {
+                (self.dialog_geometry(index, true), Duration::ZERO)
+            } else {
+                (window.tile, duration)
+            };
+            self.windows[index].render(target, output, color, now, duration);
         }
         self.raise_dialogs();
         let preview = self.preselection_preview();
@@ -166,6 +197,29 @@ impl WindowManager {
             overlay.render(preview, shm, qh);
         }
         proxy.render_finish();
+        // An unsolicited render-only sequence does not acknowledge a pending
+        // manage_dirty request. Keep that wakeup coalesced until manage_start.
+        self.next_animation_frame = (!self.animation_frame_pending
+            && self.windows.iter().any(|window| window.animation.active()))
+        .then(|| now + Duration::from_millis(u64::from(self.config.animations.frame_interval_ms)));
+    }
+
+    pub(crate) fn animation_timeout(&self, now: Instant) -> Option<Duration> {
+        if self.quitting || self.animation_frame_pending {
+            None
+        } else {
+            self.next_animation_frame
+                .map(|deadline| deadline.saturating_duration_since(now))
+        }
+    }
+
+    pub(crate) fn animation_frame_due(&mut self, now: Instant) -> bool {
+        if self.animation_timeout(now) != Some(Duration::ZERO) {
+            return false;
+        }
+        self.next_animation_frame = None;
+        self.animation_frame_pending = true;
+        true
     }
 
     fn ordered_outputs(&self) -> Vec<ObjectId> {
@@ -457,4 +511,28 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
         crate::protocol::river_window_manager_v1::EVT_OUTPUT_OPCODE => (RiverOutputV1, ()),
         crate::protocol::river_window_manager_v1::EVT_SEAT_OPCODE => (RiverSeatV1, ())
     ]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn animation_wakeups_are_bounded_and_stop_when_idle_or_quitting() {
+        let mut wm = WindowManager::default();
+        let now = Instant::now();
+        assert_eq!(wm.animation_timeout(now), None);
+        assert!(!wm.animation_frame_due(now));
+        wm.next_animation_frame = Some(now + Duration::from_millis(16));
+        assert_eq!(wm.animation_timeout(now), Some(Duration::from_millis(16)));
+        assert!(!wm.animation_frame_due(now));
+        assert!(wm.animation_frame_due(now + Duration::from_millis(16)));
+        assert_eq!(wm.animation_timeout(now + Duration::from_secs(1)), None);
+        assert!(!wm.animation_frame_due(now + Duration::from_secs(1)));
+        wm.animation_frame_pending = false;
+        wm.next_animation_frame = Some(now);
+        wm.quitting = true;
+        assert_eq!(wm.animation_timeout(now), None);
+        assert!(!wm.animation_frame_due(now));
+    }
 }

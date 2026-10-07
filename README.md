@@ -120,6 +120,7 @@ cp config.example.yaml "${XDG_CONFIG_HOME:-$HOME/.config}/slopwm/config.yml"
 
 ```yaml
 keyboard: {repeat_rate: 40, repeat_delay: 400}
+animations: {enabled: true, duration_ms: 200, frame_interval_ms: 16}
 border: {width: 2, color: "#ffffff", unfocused_color: "#808080ff"}
 scrolling: {growth_direction: left, default_width_percent: 50}
 monitors:
@@ -171,6 +172,24 @@ the default file is absent, the built-in shortcuts below are used.
 setting applies to all keyboards on every seat, including keyboards connected
 after startup. Omitted fields use their defaults. These settings control repeat
 in applications; window-manager shortcuts trigger once per press.
+
+`animations.enabled` enables eased scrolling, column/stack movement, and tile
+resize transitions (default `true`). `animations.duration_ms` sets their duration
+in milliseconds (default `200`, range `0`–`60000`); `0` or `enabled: false` applies
+changes immediately. `animations.frame_interval_ms` sets the interval between
+frame requests (default `16` ms, range `1`–`1000`). Omitted fields use defaults.
+Rapid actions continue from the last displayed geometry, and idle sessions have
+no animation timer wakeups. Focus changes immediately; the spawn preview follows
+the animated tile. New windows appear at their allocation, and closing windows
+animates the remaining layout. Workspace visibility, monitor transfers, output
+geometry changes, and true fullscreen apply immediately.
+
+Tile positions and clip rectangles animate. Applications receive the final
+content size once through River's normal configure synchronization; their content
+is clipped to the animated allocation without scaling. Reloading timing settings
+updates running transitions; disabling animations finishes them on the next
+render sequence. Session locking also finishes transitions. Dialogs follow their
+parent's displayed tile; their own content size changes apply immediately.
 
 `border.width` is a nonnegative number of logical pixels; `0` disables borders.
 `border.color` (focused) and `border.unfocused_color` both accept quoted
@@ -297,7 +316,7 @@ Configuration is loaded at startup. Press **Super + Shift + r**, use a
 The entire file is validated before any changes are applied. Invalid or missing
 files leave the last working configuration and bindings in place and print an
 error to stderr. Successful reloads update bindings on every seat, borders,
-keyboard repeat on current and future keyboards, and settings for future window
+animations, keyboard repeat on current and future keyboards, and settings for future window
 insertion. Existing widths, stacks, workspace selections, and scroll offsets
 are preserved; normal minimal scrolling still applies if geometry requires it.
 If your replacement binding map omits `reload-config`, SIGHUP remains available.

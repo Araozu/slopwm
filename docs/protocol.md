@@ -55,6 +55,22 @@ borders. Failed parsing/I/O never stages a replacement. A nonblocking signal
 self-pipe participates in the same poll loop as the Wayland socket, so idle
 sessions can reload or shut down without periodic wakeups or extra roundtrips.
 
+Animations keep target layout geometry separate from displayed geometry and
+confirmed application dimensions. Manage proposes the final content dimensions;
+render interpolates node positions, tile clipping, and borders with one shared
+monotonic timestamp. Retargeting starts at the last displayed frame. Preview
+placement uses the displayed tile. Dialogs render after their parents and track
+their displayed allocation, including nested dialogs and viewport clamping;
+their own content size changes apply immediately. Hidden workspaces, output
+changes, and true fullscreen clear stale transitions.
+
+The event loop polls with a deadline only while an animation is running. A due
+frame queues one `manage_dirty()` and waits for its render sequence before
+scheduling another; delayed application responses cannot accumulate frame
+requests. Unchanged dimensions are never proposed again just to animate.
+No per-frame roundtrip or new protocol/version requirement is introduced.
+Idle and stopping sessions have no animation deadline.
+
 ## Objects and geometry
 
 | Object | Purpose |

@@ -109,7 +109,7 @@ impl WindowManager {
     }
 
     /// Resolve parents before children, regardless of the global deque order.
-    fn dialog_order(&self) -> Vec<usize> {
+    pub(super) fn dialog_order(&self) -> Vec<usize> {
         let mut focus_family = Vec::new();
         let mut focused = self
             .active_output
@@ -159,39 +159,38 @@ impl WindowManager {
 
     pub(super) fn layout_dialogs(&mut self) {
         for index in self.dialog_order() {
-            let window = &self.windows[index];
-            let parent = window
-                .parent
-                .as_ref()
-                .and_then(|parent| self.windows.iter().find(|window| &window.proxy == parent));
-            let area = window
-                .output
-                .as_ref()
-                .and_then(|id| self.outputs.get(id))
-                .map(|output| output.work_area());
-            let tile = parent.zip(area).and_then(|(parent, area)| {
-                let parent_tile = if parent.fullscreen {
-                    let geometry = self.outputs.get(parent.output.as_ref()?)?.geometry;
-                    Some(TileGeometry {
-                        x: geometry.x,
-                        y: geometry.y,
-                        width: geometry.width,
-                        height: geometry.height,
-                        border: 0,
-                    })
-                } else {
-                    parent.tile
-                }?;
-                dialog_tile(
-                    parent_tile,
-                    area,
-                    window.natural_dimensions.unwrap_or((640, 480)),
-                    self.config.border.width,
-                    window.tile_width.soft_fullscreen,
-                )
-            });
-            self.windows[index].tile = tile;
+            self.windows[index].tile = self.dialog_geometry(index, false);
         }
+    }
+
+    pub(super) fn dialog_geometry(&self, index: usize, displayed: bool) -> Option<TileGeometry> {
+        let window = &self.windows[index];
+        let parent = window
+            .parent
+            .as_ref()
+            .and_then(|parent| self.windows.iter().find(|window| &window.proxy == parent))?;
+        let area = self.outputs.get(window.output.as_ref()?)?.work_area();
+        let parent_tile = if parent.fullscreen {
+            let geometry = self.outputs.get(parent.output.as_ref()?)?.geometry;
+            Some(TileGeometry {
+                x: geometry.x,
+                y: geometry.y,
+                width: geometry.width,
+                height: geometry.height,
+                border: 0,
+            })
+        } else if displayed {
+            parent.animation.tile()
+        } else {
+            parent.tile
+        }?;
+        dialog_tile(
+            parent_tile,
+            area,
+            window.natural_dimensions.unwrap_or((640, 480)),
+            self.config.border.width,
+            window.tile_width.soft_fullscreen,
+        )
     }
 
     pub(super) fn raise_dialogs(&self) {

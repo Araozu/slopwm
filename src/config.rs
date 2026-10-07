@@ -24,6 +24,7 @@ pub(crate) struct KeyBinding {
 pub(crate) struct Config {
     pub(crate) keybindings: Vec<KeyBinding>,
     pub(crate) keyboard: KeyboardConfig,
+    pub(crate) animations: AnimationConfig,
     pub(crate) border: BorderConfig,
     pub(crate) scrolling: ScrollingConfig,
     pub(crate) monitors: BTreeMap<String, MonitorConfig>,
@@ -76,6 +77,24 @@ impl Default for KeyboardConfig {
         Self {
             repeat_rate: 40,
             repeat_delay: 400,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct AnimationConfig {
+    pub(crate) enabled: bool,
+    pub(crate) duration_ms: u32,
+    pub(crate) frame_interval_ms: u32,
+}
+
+impl Default for AnimationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            duration_ms: 200,
+            frame_interval_ms: 16,
         }
     }
 }
@@ -215,6 +234,7 @@ impl Default for Config {
         Self {
             keybindings,
             keyboard: KeyboardConfig::default(),
+            animations: AnimationConfig::default(),
             border: BorderConfig::default(),
             scrolling: ScrollingConfig::default(),
             monitors: BTreeMap::new(),
@@ -239,6 +259,8 @@ struct FileConfig {
     keybindings: Option<BTreeMap<String, BindingAction>>,
     #[serde(default)]
     keyboard: KeyboardConfig,
+    #[serde(default)]
+    animations: AnimationConfig,
     #[serde(default)]
     border: FileBorder,
     #[serde(default)]
@@ -296,6 +318,16 @@ impl Config {
                 "keyboard.repeat_delay must be nonnegative".into(),
             ));
         }
+        if file.animations.duration_ms > 60_000 {
+            return Err(ConfigError(
+                "animations.duration_ms must be between 0 and 60000".into(),
+            ));
+        }
+        if !(1..=1000).contains(&file.animations.frame_interval_ms) {
+            return Err(ConfigError(
+                "animations.frame_interval_ms must be between 1 and 1000".into(),
+            ));
+        }
         if !(1..=98).contains(&file.scrolling.default_width_percent) {
             return Err(ConfigError(
                 "scrolling.default_width_percent must be between 1 and 98".into(),
@@ -309,6 +341,7 @@ impl Config {
         }
         let mut config = Self {
             keyboard: file.keyboard,
+            animations: file.animations,
             border: BorderConfig {
                 width: file.border.width,
                 color: parse_color(&file.border.color)
@@ -492,9 +525,59 @@ mod tests {
     fn example_preserves_default_shortcuts() {
         let example = Config::parse(include_str!("../config.example.yaml")).unwrap();
         let defaults = Config::default();
+        assert_eq!(example.animations, defaults.animations);
         assert_eq!(example.keybindings.len(), defaults.keybindings.len());
         for binding in defaults.keybindings {
             assert!(example.keybindings.contains(&binding));
+        }
+    }
+
+    #[test]
+    fn animation_settings_default_independently_and_allow_disabling() {
+        let defaults = AnimationConfig::default();
+        assert_eq!(Config::parse("{}").unwrap().animations, defaults);
+        assert_eq!(
+            Config::parse("animations: {}").unwrap().animations,
+            defaults
+        );
+        let disabled = Config::parse("animations: {enabled: false}")
+            .unwrap()
+            .animations;
+        assert!(!disabled.enabled);
+        assert_eq!(disabled.duration_ms, defaults.duration_ms);
+        assert_eq!(disabled.frame_interval_ms, defaults.frame_interval_ms);
+        for duration in [0, 1, 60_000] {
+            for interval in [1, 16, 1000] {
+                let config = Config::parse(&format!(
+                    "animations: {{duration_ms: {duration}, frame_interval_ms: {interval}}}"
+                ))
+                .unwrap();
+                assert_eq!(config.animations.duration_ms, duration);
+                assert_eq!(config.animations.frame_interval_ms, interval);
+                assert!(config.animations.enabled);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_animation_timings_are_rejected_even_when_disabled() {
+        for settings in [
+            "duration_ms: -1",
+            "duration_ms: 60001",
+            "duration_ms: 4294967296",
+            "duration_ms: 1.5",
+            "duration_ms: null",
+            "frame_interval_ms: 0",
+            "frame_interval_ms: -1",
+            "frame_interval_ms: 1001",
+            "frame_interval_ms: 1.5",
+            "enabled: 3",
+            "typo: 10",
+        ] {
+            for prefix in ["", "enabled: false, "] {
+                let source = format!("animations: {{{prefix}{settings}}}");
+                assert!(Config::parse(&source).is_err(), "accepted {source:?}");
+            }
         }
     }
 

@@ -5,8 +5,9 @@
 
 use std::collections::HashMap;
 use std::io;
+use std::time::Instant;
 
-use rustix::event::{PollFd, PollFlags, poll};
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use wayland_backend::client::WaylandError;
 
 use wayland_client::{
@@ -245,6 +246,9 @@ pub(crate) fn run(config: Config, source: ConfigSource) -> Result<(), Box<dyn st
         if reload || reload_requested {
             app_data.reload_config(&source);
         }
+        if app_data.wm.animation_frame_due(Instant::now()) {
+            app_data.request_manage_sequence();
+        }
         let complete =
             app_data.stopping && app_data.river_wm.is_none() && app_data.river_input.is_none();
         if complete {
@@ -279,7 +283,12 @@ pub(crate) fn run(config: Config, source: ConfigSource) -> Result<(), Box<dyn st
             PollFd::from_borrowed_fd(read.connection_fd(), flags),
             PollFd::new(&signals.socket, PollFlags::IN),
         ];
-        match poll(&mut fds, None) {
+        let timeout = app_data
+            .wm
+            .animation_timeout(Instant::now())
+            .map(Timespec::try_from)
+            .transpose()?;
+        match poll(&mut fds, timeout.as_ref()) {
             Ok(_) => {
                 if fds[0]
                     .revents()

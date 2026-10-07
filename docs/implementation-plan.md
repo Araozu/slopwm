@@ -26,6 +26,7 @@ and per-monitor growth directions.
 | `src/wm/columns.rs` | Column ordering, stack/unstack, focus navigation, column moves, scroll/center/right policy, and layout policy |
 | `src/wm/workspaces.rs` | Per-output dynamic workspace lifecycle, remembered focus/scroll, navigation, and window moves |
 | `src/wm/layout.rs` | Pure scrolling geometry, minimal-scroll/center/right math, borders, width state, and vertical splitting |
+| `src/wm/animation.rs` | Pure tile interpolation, interrupted transitions, and displayed geometry |
 | `src/wm/preselection.rs` | One-shot spawn targets, cancellation, and clipped directional preview geometry |
 | `src/wm/overlay.rs` | Input-transparent River shell surface, shared-memory drawing, and synchronized commits |
 | `protocol/*.xml` | Reviewed protocol definitions with their original notices |
@@ -93,13 +94,14 @@ manage/render rules.
    retains the last valid settings on failure, and applies replacements through
    `manage_dirty()`. Existing/hotplug keyboards receive current repeat settings.
    Bindings are disabled while locked, and layer-shell focus returns to the
-   selected window. Timer/IPC integration and richer diagnostics remain future
+   selected window. Animation deadlines participate in the existing poll loop;
+   IPC integration and richer diagnostics remain future
    work. Gate optional protocol extensions by negotiated versions.
 
 Layer-shell wallpapers, bars, and launchers can map their surfaces. Top/bottom
 reservations reduce available height while preserving physical horizontal peek
-margins; true fullscreen still covers the complete output. Custom titlebars and
-animation remain future work.
+margins; true fullscreen still covers the complete output. Layout movement and
+tile clipping animate with configurable timing; custom titlebars remain future work.
 Use compositor-drawn borders first if decoration is needed; custom decoration
 surfaces introduce buffer creation and commit synchronization work.
 

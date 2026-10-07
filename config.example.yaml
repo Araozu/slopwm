@@ -18,6 +18,21 @@ keyboard:
   # Nonnegative integer in milliseconds before repeating starts. Default: 400.
   repeat_delay: 400
 
+# Scrolling, column/stack movement, and tile resize animations.
+# Omitting this section or any field uses its default. Reload applies changes.
+animations:
+  # Set false to apply layout changes immediately. Default: true.
+  enabled: true
+
+  # Integer milliseconds, 0 through 60000; 0 also disables animation.
+  # Uses cubic ease-out and continues from the displayed tile on interruption.
+  # Default: 200.
+  duration_ms: 200
+
+  # Integer milliseconds between frame requests, 1 through 1000. Default: 16.
+  # Frames stop when animations finish; idle sessions have no timer wakeups.
+  frame_interval_ms: 16
+
 # Window borders. Omitting this section or any field uses its default.
 # Both colors accept alpha via "#RRGGBBAA".
 border:

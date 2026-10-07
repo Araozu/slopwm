@@ -9,6 +9,8 @@ Dynamic workspaces are independent per monitor and keep one empty workspace
 below the occupied ones.
 Live configuration reload, graceful manager replacement, floating parent-aware
 dialogs, and vertical panel reservations are implemented as of 2026-10-07.
+Layout animations have reloadable duration and frame interval settings, with
+headless geometry and protocol regression coverage.
 The Rust demo walkthrough records the original floating reference.
 
 Read in this order:

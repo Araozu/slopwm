@@ -95,10 +95,11 @@ def encode(args, values):
 
 
 class Peer:
-    def __init__(self, binary=BINARY, versions=(5, 2), layer=True, missing=None):
+    def __init__(self, binary=BINARY, versions=(5, 2), layer=True, missing=None,
+                 animations="enabled: false"):
         self.temp = tempfile.TemporaryDirectory(prefix="slopwm-protocol-")
         self.config = Path(self.temp.name) / "config.yml"
-        self.config.write_text(self.configuration())
+        self.config.write_text(self.configuration(animations=animations))
         self.log = tempfile.TemporaryFile()
         self.socket, child = socket.socketpair()
         env = dict(os.environ, WAYLAND_SOCKET=str(child.fileno()))
@@ -134,6 +135,9 @@ class Peer:
         self.buffers = set()
         self.manage_count = self.render_count = 0
         self.render_only_count = 0
+        self.dirty = False
+        self.clips = {}
+        self.content_clips = {}
         self.globals = {
             1: ("wl_compositor", 4), 2: ("wl_shm", 1),
             3: ("river_window_manager_v1", versions[0]),
@@ -149,13 +153,14 @@ class Peer:
         self.wait(lambda: all(name in self.bound for name, _ in self.globals.values()))
 
     @staticmethod
-    def configuration(rate=40, border=2, extra=""):
+    def configuration(rate=40, border=2, extra="", animations="enabled: false"):
         actions = ["focus-output-next", "focus-output-previous", "focus-workspace-down",
                    "focus-workspace-up", "move-to-output-next", "move-to-workspace-down",
                    "toggle-fullscreen", "toggle-soft-fullscreen", "preselect-right",
                    "preselect-down", "reload-config", "quit", "close", "focus-next",
                    "focus-previous", "center-window", "move-next", "stack-next", "unstack"]
         return (f"keyboard: {{repeat_rate: {rate}, repeat_delay: 210}}\n"
+                f"animations: {{{animations}}}\n"
                 f"border: {{width: {border}, color: '#ffffff', unfocused_color: '#808080ff'}}\n"
                 "keybindings:\n" + "".join(f"  F{i}: {action}\n" for i, action in enumerate(actions, 1)) + extra)
 
@@ -263,6 +268,8 @@ class Peer:
                 self.event(new, "format", 1)
         elif name == "stop":
             self.stopped.add(interface)
+        elif name == "manage_dirty":
+            self.dirty = True
         elif name == "manage_finish":
             assert self.phase == "manage"
             self.manage_count += 1
@@ -287,6 +294,10 @@ class Peer:
                 self.proposals[obj] = tuple(values)
             elif name in {"show", "hide"}:
                 self.visible[obj] = name == "show"
+            elif name == "set_clip_box":
+                self.clips[obj] = tuple(values)
+            elif name == "set_content_clip_box":
+                self.content_clips[obj] = tuple(values)
         elif interface == "river_node_v1" and name != "destroy":
             assert self.phase in {"manage", "render"}, (name, self.phase)
             if name == "set_position":
@@ -301,6 +312,8 @@ class Peer:
                 else:
                     index = self.order.index(values[0]) + (name == "place_above")
                     self.order.insert(index, obj)
+        elif interface == "river_shell_surface_v1" and name == "get_node":
+            self.nodes[obj] = values[0]
         elif interface == "river_seat_v1" and name in {"focus_window", "clear_focus"}:
             assert self.phase == "manage"
             self.focus = values[0] if values else None
@@ -359,6 +372,7 @@ class Peer:
 
     def manage(self):
         assert self.phase == "idle"
+        self.dirty = False
         old = self.manage_count
         self.phase = "manage"
         self.event(self.bound["river_window_manager_v1"], "manage_start")
@@ -396,6 +410,17 @@ class Peer:
     def geometry(self, window):
         return self.positions[self.nodes[window]] + self.dimensions[window]
 
+    def animate(self, observe=lambda: None):
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if not self.dirty:
+                self.read(0.03)
+            if not self.dirty:
+                return
+            self.manage()
+            observe()
+        raise AssertionError("animation failed to settle")
+
     def shutdown(self, input_first=False, status=0, request=True):
         if request:
             self.process.send_signal(signal.SIGTERM)
@@ -421,6 +446,216 @@ class RegressionTests(unittest.TestCase):
         peer = Peer(**kwargs)
         self.addCleanup(peer.close)
         return peer
+
+    def test_animation_progress_retarget_and_idle_without_resize_spam(self):
+        p = self.peer(animations="duration_ms: 120, frame_interval_ms: 5", versions=(4, 1))
+        p.setup()
+        window = p.window()
+        p.manage()
+        start = len(p.history)
+        p.press(16)  # Center the initial column.
+        self.assertEqual(p.geometry(window)[:2], (12, 2))
+        samples = []
+        p.animate(lambda: samples.append(p.geometry(window)[0]))
+        self.assertTrue(any(12 < x < 252 for x in samples), samples)
+        self.assertEqual(samples, sorted(samples))
+        self.assertEqual(p.geometry(window), (252, 2, 496, 796))
+        self.assertEqual(p.focus, window)
+        self.assertFalse(any(row[2] == "propose_dimensions" for row in p.history[start:]))
+        self.assertEqual(len([row for row in p.history[start:] if row[0] == "wl_display" and row[2] == "sync"]), 0)
+        after = len(p.history)
+        p.read(0.06)
+        self.assertFalse(any(row[2] == "manage_dirty" for row in p.history[after:]))
+
+        other = p.window()
+        p.manage()
+        shown = p.geometry(window)[:2]
+        p.press(17)  # Move the new left column past its neighbor mid-animation.
+        self.assertEqual(p.geometry(window)[:2], shown)
+        p.animate()
+        self.assertEqual(p.geometry(other), (492, 2, 496, 796))
+        self.assertEqual(p.geometry(window), (-8, 2, 496, 796))
+        self.assertEqual(p.focus, other)
+        p.shutdown()
+
+    def test_animated_resize_clips_confirmed_content_and_preview_tracks_motion(self):
+        p = self.peer(animations="duration_ms: 120, frame_interval_ms: 5")
+        p.setup()
+        parent = p.window()
+        p.manage()
+        dialog = p.window(parent)
+        p.manage()
+        p.press(9)  # Preview attaches to the parent tile.
+        p.press(16)
+        p.animate()
+        self.assertEqual(p.geometry(parent)[:2], (252, 2))
+        self.assertEqual(p.geometry(dialog)[:2], (350, 300))
+        shell = next(row[3][0] for row in p.history if row[2] == "get_shell_surface")
+        self.assertEqual(p.positions[p.nodes[shell]], (500, 0))
+        p.click(parent)
+        start = len(p.history)
+        p.press(8)  # Soft fullscreen requests the final content size once.
+        self.assertEqual(p.content_clips[parent][2:], (496, 796))
+        widths = []
+        p.animate(lambda: widths.append(p.content_clips[parent][2]))
+        self.assertTrue(any(496 < width < 976 for width in widths), widths)
+        self.assertEqual(p.content_clips[parent][2:], (976, 796))
+        self.assertEqual(len([row for row in p.history[start:] if row[1] == parent and row[2] == "propose_dimensions"]), 1)
+        # A render-only response that exceeds the proposal remains clipped.
+        p.event(parent, "dimensions", 1200, 900)
+        p.dimensions[parent] = (1200, 900)
+        p.render()
+        self.assertEqual(p.content_clips[parent][2:], (976, 796))
+        x, y = p.positions[p.nodes[parent]]
+        cx, cy, width, height = p.clips[parent]
+        self.assertGreaterEqual(x + cx, 0)
+        self.assertGreaterEqual(y + cy, 0)
+        self.assertLessEqual(x + cx + width, 1000)
+        self.assertLessEqual(y + cy + height, 800)
+        p.shutdown()
+
+    def test_animation_reload_disable_hide_migrate_and_shutdown(self):
+        p = self.peer(animations="duration_ms: 60000, frame_interval_ms: 5")
+        p.setup()
+        window = p.window()
+        p.manage()
+        p.press(16)
+        p.wait(lambda: p.dirty)
+        p.config.write_text(p.configuration(animations="duration_ms: -1"))
+        p.process.send_signal(signal.SIGHUP)
+        deadline = time.monotonic() + 3
+        while "reload failed" not in p.diagnostics() and time.monotonic() < deadline:
+            p.read(0.02)
+        self.assertIn("reload failed", p.diagnostics())
+        p.manage()
+        self.assertLess(p.geometry(window)[0], 252)
+        # An outstanding frame stays coalesced while the peer delays manage.
+        p.wait(lambda: p.dirty)
+        after = len(p.history)
+        p.render()  # A render-only sequence does not service the pending wakeup.
+        p.read(0.04)
+        self.assertFalse(any(row[2] == "manage_dirty" for row in p.history[after:]))
+        p.config.write_text(p.configuration(animations="enabled: false"))
+        p.process.send_signal(signal.SIGHUP)
+        deadline = time.monotonic() + 3
+        while "configuration reloaded" not in p.diagnostics() and time.monotonic() < deadline:
+            p.manage()
+            p.read(0.02)
+        p.manage()  # Apply the staged replacement at the next manage boundary.
+        self.assertEqual(p.geometry(window), (252, 2, 496, 796))
+        p.animate()
+        self.assertFalse(p.dirty)
+
+        p.config.write_text(p.configuration(animations="duration_ms: 60000, frame_interval_ms: 5"))
+        p.press(11)
+        p.wait(lambda: p.dirty)
+        p.manage()
+        other = p.window()
+        p.manage()
+        p.press(3)
+        self.assertFalse(p.visible[window])
+        self.assertFalse(p.visible[other])
+        p.animate()
+        p.press(4)
+        self.assertTrue(p.visible[window])
+        self.assertTrue(p.visible[other])
+        p.press(5)
+        self.assertEqual(p.geometry(other)[0], 1012)
+        p.press(16)  # Shut down with a transition and timer outstanding.
+        p.shutdown(input_first=True)
+
+    def test_nested_dialogs_follow_displayed_parent_at_viewport_edges(self):
+        p = self.peer(animations="duration_ms: 120, frame_interval_ms: 5")
+        p.setup()
+        parent = p.window()
+        p.manage()
+        p.press(16)
+        dialog = p.window(parent)
+        p.manage()
+        nested = p.window(dialog, (120, 80))
+        p.manage()
+
+        def observe():
+            self.assertEqual(p.geometry(dialog)[0], p.geometry(parent)[0] + 98)
+            self.assertEqual(p.geometry(nested)[0], p.geometry(dialog)[0] + 90)
+
+        observe()
+        p.animate(observe)
+        p.window()
+        p.manage()
+        newest = p.window()
+        p.manage()
+        # The destination is offscreen, but the parent is still being shown.
+        self.assertTrue(p.visible[parent])
+        self.assertTrue(p.visible[dialog])
+        self.assertTrue(p.visible[nested])
+        p.animate()
+        self.assertFalse(p.visible[parent])
+        self.assertFalse(p.visible[dialog])
+        self.assertFalse(p.visible[nested])
+        p.closed(newest)
+        p.animate()
+        self.assertTrue(p.visible[parent])
+        self.assertTrue(p.visible[dialog])
+        self.assertTrue(p.visible[nested])
+        p.shutdown()
+
+    def test_zero_duration_and_disabled_animations_apply_immediately(self):
+        for settings in ["duration_ms: 0", "enabled: false"]:
+            with self.subTest(settings=settings):
+                p = self.peer(animations=settings)
+                p.setup()
+                window = p.window()
+                p.manage()
+                p.press(16)
+                self.assertEqual(p.geometry(window), (252, 2, 496, 796))
+                p.animate()
+                self.assertFalse(p.dirty)
+                p.shutdown()
+
+    def test_stack_animations_and_cancellation_on_lock_fullscreen_output_removal(self):
+        p = self.peer(animations="duration_ms: 120, frame_interval_ms: 5")
+        p.setup()
+        first = p.window()
+        p.manage()
+        second = p.window()
+        p.manage()
+        p.animate()
+        p.press(18)
+        rows = []
+        p.animate(lambda: rows.append(p.geometry(second)[1]))
+        self.assertTrue(any(2 < y < 402 for y in rows), rows)
+        self.assertEqual(p.geometry(first), (12, 2, 496, 396))
+        self.assertEqual(p.geometry(second), (12, 402, 496, 396))
+        p.press(19)
+        p.animate()
+        self.assertEqual(p.geometry(second), (12, 2, 496, 796))
+        self.assertEqual(p.geometry(first), (512, 2, 496, 796))
+        p.press(16)
+        manager = p.bound["river_window_manager_v1"]
+        p.event(manager, "session_locked")
+        p.manage()
+        self.assertEqual(p.geometry(second)[:2], (252, 2))
+        p.animate()
+        self.assertFalse(p.dirty)
+        p.event(manager, "session_unlocked")
+        p.manage()
+        p.press(15)  # Focus the left edge, then enter/leave true fullscreen.
+        p.press(7)
+        p.animate()
+        self.assertFalse(p.dirty)
+        p.press(7)
+        p.animate()
+        self.assertEqual(p.geometry(second)[2:], (496, 796))
+        p.window()
+        p.manage()
+        p.removed.add(p.outputs[0])
+        p.event(p.outputs[0], "removed")
+        p.manage()
+        p.animate()
+        self.assertGreaterEqual(p.geometry(second)[0], 1000)
+        self.assertGreaterEqual(p.geometry(first)[0], 1000)
+        p.shutdown()
 
     def test_layer_focus_panels_hotplug_and_lock(self):
         p = self.peer()
