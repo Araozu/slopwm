@@ -21,6 +21,8 @@ keyboard actions, borders, initial widths, and per-monitor growth directions.
 | `src/wm/columns.rs` | Column ordering, stack/unstack, focus navigation, and layout policy |
 | `src/wm/workspaces.rs` | Per-output dynamic workspace lifecycle, remembered focus, navigation, and window moves |
 | `src/wm/layout.rs` | Pure scrolling geometry, borders, width state, and vertical splitting |
+| `src/wm/preselection.rs` | One-shot spawn targets, cancellation, and clipped directional preview geometry |
+| `src/wm/overlay.rs` | Input-transparent River shell surface, shared-memory drawing, and synchronized commits |
 | `protocol/*.xml` | Reviewed protocol definitions with their original notices |
 
 Each object's dispatch implementation lives beside its state and behavior.
@@ -61,7 +63,8 @@ manage/render rules.
    monitor placement, monitor-switching bindings, and recovery after output
    removal are present. Fullscreen/maximize capabilities match implemented
    behavior. Application dimensions are confirmed separately and clipped to
-   allocations. Parent relationships remain future work.
+   allocations. Parent metadata prevents dialogs from consuming a pending spawn
+   selection; general dialog placement remains future work.
 4. **Scrolling layout.** Stable-width columns grow left by default, with
    per-monitor overrides. Stack/unstack actions support vertical rows. The
    focused column keeps a 1% left inset; soft fullscreen occupies 98% width and
@@ -69,6 +72,8 @@ manage/render rules.
    dynamic workspaces with up/down navigation and window moves. Empty workspaces
    are pruned above a single trailing empty workspace; output removal preserves
    occupied workspace groups on a surviving output.
+   Direction preselection inserts the next regular window
+   beside a column or row, with a manager-owned shell surface marking the side.
 5. **Make daily operation predictable.** Add useful diagnostics, configuration
    reload through `manage_dirty()`, lock-aware bindings, and any needed timer/IPC
    integration. Gate optional protocol extensions by negotiated versions.
@@ -95,6 +100,11 @@ Use a controlled River session to check behavior beyond compilation:
   manager consumes returned dimensions and later render-only sequences.
 - Stack/unstack windows, focus rows, toggle soft fullscreen, and close a row;
   verify height restoration, stable widths, and cleaned-up focus references.
+- Preselect all four spawn directions, spawn multiple windows, and verify only
+  the first regular window consumes the choice. Check repeat-to-cancel, explicit
+  cancellation, dialogs, target closure, output removal, and fullscreen previews.
+- Click and type through the preview; verify it never receives pointer or
+  keyboard focus and disappears with the new tile in a completed render sequence.
 - Move the pointer between windows/outputs; verify keyboard and monitor focus
   stay fixed. Click a visible neighboring tile and check explicit focus.
 - Reconfigure/remove an output and leave fullscreen; verify restored geometry
@@ -103,6 +113,9 @@ Use a controlled River session to check behavior beyond compilation:
   top/middle workspaces by closing or moving windows and verify navigation skips
   them. Check remembered focus, stacks, widths, and both fullscreen modes when
   switching workspaces, including an empty workspace's cleared focus.
+- Switch workspaces with a pending spawn direction; verify the overlay hides
+  on inactive workspaces and the next regular window returns to its target
+  workspace. Moving the anchor to another workspace must cancel the selection.
 - Switch workspaces independently on two monitors, move a stacked row between
   workspaces, and unplug a monitor with multiple occupied workspaces. Confirm
   the surviving monitor retains distinct workspace groups and a single empty
@@ -136,4 +149,14 @@ stacked-row moves, keyboard/click focus, pointer focus invariance, and output
 removal/reconnection. Screenshot comparisons confirmed that inactive true
 fullscreen windows stay hidden. All 191 manage and 191 render sequences finished
 in order without protocol errors. Physical monitors and older negotiated
+protocol versions were not exercised.
+
+Workspace/preselection integration on 2026-10-06 passed formatting, compilation,
+27 unit tests, and offline validation of all 25 example bindings. Three isolated
+two-monitor River sessions passed 45 checks: 15 workspace regressions, 21 spawn
+preselection regressions, and 9 checks for their interaction. Pending selections
+retain their target workspace, hide previews while it is inactive, return there
+on spawning, and cancel when the anchor moves or the workspace disappears.
+All 452 manage and 452 render sequences finished in order; preview commits were
+synchronized without protocol errors. Physical monitors and older negotiated
 protocol versions were not exercised.

@@ -54,6 +54,7 @@ there is no work.
 | `river_window_manager_v1` | Sequence boundaries, window/output/seat creation, lifecycle |
 | `river_window_v1` | Content dimensions, metadata, application requests, window state |
 | `river_node_v1` | Position and stacking of a window or shell surface |
+| `river_shell_surface_v1` | Manager-owned UI, including the spawn-direction overlay |
 | `river_output_v1` | A logical monitor area, including its position and dimensions |
 | `river_seat_v1` | An input-device group with focus, interaction, and pointer operations |
 | `river_xkb_bindings_v1` / `river_xkb_binding_v1` | Keyboard-binding creation and activation |
@@ -78,6 +79,25 @@ monitors; track its geometry events rather than guessing from physical modes.
 
 Workspace visibility can use `hide()` / `show()`. Hidden windows still exist, so
 workspace switching must also select appropriate keyboard focus.
+
+## Spawn preview surface
+
+slopwm creates its input-transparent overlay with `get_shell_surface()` on a
+fresh `wl_surface`, before attaching or committing a buffer. These shell-surface
+requests are available since management version 1 and require no new XML or
+layer-shell support. The surface has an empty input region and is never given
+keyboard focus. Its node is positioned explicitly and raised after window
+render updates, so it can also appear over true fullscreen.
+
+Preview pixels use immutable, premultiplied ARGB8888 `wl_shm` buffers backed by
+anonymous files. The pool is destroyed after creating the buffer; the compositor
+retains its backing storage, and `wl_buffer.release` destroys the buffer object.
+The manager never rewrites a buffer still in use.
+
+During a render sequence, `sync_next_commit()` is followed by the surface commit
+before `render_finish()`. Attaching a null buffer removes the overlay in the same
+render transaction that presents the newly inserted tile. Geometry and direction
+changes create a new buffer; unchanged previews keep their existing pixels.
 
 ## Focus, bindings, and pointer operations
 

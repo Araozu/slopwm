@@ -23,6 +23,7 @@ pub(super) struct Window {
     pub(super) node: RiverNodeV1,
     pub(super) new: bool,
     pub(super) closed: bool,
+    pub(super) parent: Option<RiverWindowV1>,
     pub(super) width: i32,
     pub(super) height: i32,
     pub(super) output: Option<ObjectId>,
@@ -47,6 +48,7 @@ impl Window {
             node,
             new: true,
             closed: false,
+            parent: None,
             width: 0,
             height: 0,
             output: None,
@@ -200,7 +202,7 @@ impl Dispatch<RiverWindowV1, ()> for AppData {
             Event::Dimensions { width, height } => (window.width, window.height) = (width, height),
             Event::AppId { app_id: _ } => {}
             Event::Title { title: _ } => {}
-            Event::Parent { parent: _ } => {}
+            Event::Parent { parent } => window.parent = parent,
             Event::DecorationHint { hint: _ } => {}
             Event::PointerMoveRequested { .. } | Event::PointerResizeRequested { .. } => {}
             Event::ShowWindowMenuRequested { x: _, y: _ } => {}

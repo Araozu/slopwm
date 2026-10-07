@@ -53,7 +53,9 @@ WAYLAND_DEBUG=1 river -c ./target/debug/slopwm
 
 slopwm reads YAML from `$XDG_CONFIG_HOME/slopwm/config.yaml`, falling back to
 `~/.config/slopwm/config.yaml` when `XDG_CONFIG_HOME` is unset or invalid.
-Start with the [example config](config.example.yaml):
+The [example config](config.example.yaml) documents every supported setting and
+keybinding action, with defaults and commented customization examples. Copy it
+to get started:
 
 ```sh
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/slopwm"
@@ -77,14 +79,19 @@ keybindings:
   "Super+Shift+Left": stack-previous
   "Super+u": unstack
   "Super+m": focus-output-next
-  "Super+Ctrl+Up": focus-workspace-up
-  "Super+Ctrl+Down": focus-workspace-down
-  "Super+Ctrl+Shift+Up": move-to-workspace-up
-  "Super+Ctrl+Shift+Down": move-to-workspace-down
+  "Super+Alt+Up": focus-workspace-up
+  "Super+Alt+Down": focus-workspace-down
+  "Super+Alt+Shift+Up": move-to-workspace-up
+  "Super+Alt+Shift+Down": move-to-workspace-down
   "Super+f": toggle-soft-fullscreen
   "Super+Shift+f": toggle-fullscreen
   "Super+equal": {change-width-percent: 10}
   "Super+minus": {change-width-percent: -10}
+  "Super+Ctrl+Left": preselect-left
+  "Super+Ctrl+Right": preselect-right
+  "Super+Ctrl+Up": preselect-up
+  "Super+Ctrl+Down": preselect-down
+  "Super+Ctrl+Escape": preselect-cancel
   "Super+Escape": exit
 ```
 
@@ -125,7 +132,32 @@ the target column's width and divides its height equally. At the strip's edge,
 stacking toward a missing neighbor does nothing. `focus-up` / `focus-down` cycle
 within the column; `focus-next` / `focus-previous` switch columns while preserving
 the row where possible. `unstack` restores the focused window to its own column
-on the configured growth side. New windows always get their own column.
+on the configured growth side. New windows get their own column unless a
+vertical spawn direction is preselected.
+
+`preselect-left` / `preselect-right` choose which side of the selected column
+will receive the next window, overriding the monitor's growth direction once.
+`preselect-up` / `preselect-down` insert the next window immediately above /
+below the selected row in the same column. Vertical insertion keeps the
+column's regular width and divides its height equally between the rows, leaving
+soft or true fullscreen on the target column as needed.
+
+A translucent blue overlay with an arrow marks the selected side of the tile.
+It indicates insertion direction; the existing scrolling and stack rules still
+determine the final window dimensions. The overlay accepts no input and never
+changes focus. On an empty workspace it marks the initial tile, and any direction
+opens the first column. It is clipped to its monitor, including when the chosen
+tile scrolls partly or entirely out of view.
+
+The selection stays attached to the chosen tile, workspace, and monitor when
+focus moves. Its overlay is hidden while that workspace is inactive. Spawning
+with a pending selection returns to its workspace and monitor.
+The next new window without a parent consumes it and receives focus, whether
+launched by a spawn binding or another program; dialogs do not consume it.
+Press the same direction on the same tile again, or use `preselect-cancel`, to
+clear it. Closing the target tile, moving it to another workspace, removing its
+workspace or monitor, or locking the session also clears it. Without a
+selection, normal monitor growth direction applies.
 
 Soft fullscreen temporarily hides sibling rows and gives the selected window
 the whole height. Toggling it off restores the stack; focusing a sibling row
@@ -183,11 +215,13 @@ river -c './target/release/slopwm --config /absolute/path/config.yaml'
 | Super + Shift + Right / Left | Stack the focused window into the right / left column |
 | Super + u | Unstack the focused window into its own column |
 | Super + m / Super + Shift + m | Focus the next / previous monitor |
-| Super + Ctrl + Up / Down | Focus the workspace above / below on this monitor |
-| Super + Ctrl + Shift + Up / Down | Move the focused window to the workspace above / below and follow it |
+| Super + Alt + Up / Down | Focus the workspace above / below on this monitor |
+| Super + Alt + Shift + Up / Down | Move the focused window to the workspace above / below and follow it |
 | Super + f | Toggle soft fullscreen (98% width) |
 | Super + Shift + f | Toggle true fullscreen |
 | Super + = / Super + - | Add / subtract 10 percentage points of width |
+| Super + Ctrl + Left / Right / Up / Down | Preselect the next window's insertion direction |
+| Super + Ctrl + Escape | Cancel spawn preselection |
 | Super + Escape | Exit the entire Wayland session |
 | Click a window | Focus and raise it |
 

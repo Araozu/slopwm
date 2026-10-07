@@ -7,6 +7,8 @@ mod bindings;
 mod columns;
 mod layout;
 mod output;
+mod overlay;
+mod preselection;
 mod seat;
 mod window;
 mod workspaces;
@@ -25,7 +27,8 @@ use crate::protocol::{
 };
 
 use self::{
-    layout::TileWidth, output::Output, seat::Seat, window::Window, workspaces::DetachedWorkspace,
+    layout::TileWidth, output::Output, overlay::Overlay, preselection::Preselection, seat::Seat,
+    window::Window, workspaces::DetachedWorkspace,
 };
 
 #[derive(Debug, Default)]
@@ -38,6 +41,9 @@ pub(crate) struct WindowManager {
     active_output: Option<ObjectId>,
     seats: HashMap<ObjectId, Seat>,
     next_column: u64,
+    preselection: Option<Preselection>,
+    overlay: Option<Overlay>,
+    session_locked: bool,
 }
 
 impl WindowManager {
@@ -58,6 +64,7 @@ impl WindowManager {
         self.remove_seats();
         self.manage_outputs();
         self.reconcile_workspaces();
+        self.reconcile_preselection();
         self.init_new_windows();
         self.reconcile_workspaces();
         for window in &mut self.windows {
@@ -74,6 +81,7 @@ impl WindowManager {
             seat.do_actions(self, proxy);
         }
         self.seats = seats;
+        self.reconcile_preselection();
         self.layout_windows();
         for window in &mut self.windows {
             if let Some(output) = window.output.as_ref().and_then(|id| self.outputs.get(id)) {
@@ -83,7 +91,13 @@ impl WindowManager {
         proxy.manage_finish();
     }
 
-    fn handle_render_start(&mut self, proxy: &RiverWindowManagerV1) {
+    fn handle_render_start(
+        &mut self,
+        proxy: &RiverWindowManagerV1,
+        compositor: &wayland_client::protocol::wl_compositor::WlCompositor,
+        shm: &wayland_client::protocol::wl_shm::WlShm,
+        qh: &QueueHandle<AppData>,
+    ) {
         for window in &mut self.windows {
             let output = window
                 .output
@@ -92,6 +106,13 @@ impl WindowManager {
                 .filter(|output| output.workspaces.current().id == window.workspace)
                 .map(|output| output.geometry);
             window.render(output, self.config.border.color);
+        }
+        let preview = self.preselection_preview();
+        if preview.is_some() && self.overlay.is_none() {
+            self.overlay = Some(Overlay::new(proxy, compositor, qh));
+        }
+        if let Some(overlay) = &mut self.overlay {
+            overlay.render(preview, shm, qh);
         }
         proxy.render_finish();
     }
@@ -228,9 +249,9 @@ impl WindowManager {
     }
 
     fn init_new_windows(&mut self) {
-        let Some(output) = self.active_output.clone() else {
+        if self.active_output.is_none() {
             return;
-        };
+        }
         let (new, existing): (VecDeque<_>, VecDeque<_>) = std::mem::take(&mut self.windows)
             .into_iter()
             .partition(|window| window.new);
@@ -239,8 +260,16 @@ impl WindowManager {
             window.initialize();
             window.tile_width = TileWidth::new(self.config.scrolling.default_width_percent);
             window.column = self.allocate_column();
-            window.workspace = self.outputs[&output].workspaces.current().id;
-            self.insert_window(window, output.clone());
+            // Dialogs must not steal the pending placement from the next app.
+            if window.parent.is_none()
+                && let Some(preselection) = self.preselection.take()
+            {
+                self.insert_preselected_window(window, preselection);
+            } else {
+                let output = self.active_output.clone().unwrap();
+                window.workspace = self.outputs[&output].workspaces.current().id;
+                self.insert_window(window, output);
+            }
         }
     }
 }
@@ -262,7 +291,12 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
                 );
                 std::process::exit(1);
             }
-            Event::Finished => std::process::exit(0),
+            Event::Finished => {
+                if let Some(overlay) = state.wm.overlay.take() {
+                    overlay.destroy();
+                }
+                std::process::exit(0);
+            }
             Event::ManageStart => {
                 let xkb = state
                     .river_xkb
@@ -270,8 +304,17 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
                     .expect("river_xkb_bindings_v1 missing");
                 state.wm.handle_manage_start(proxy, xkb, qh);
             }
-            Event::RenderStart => state.wm.handle_render_start(proxy),
-            Event::SessionLocked | Event::SessionUnlocked => {}
+            Event::RenderStart => state.wm.handle_render_start(
+                proxy,
+                state.compositor.as_ref().expect("wl_compositor missing"),
+                state.shm.as_ref().expect("wl_shm missing"),
+                qh,
+            ),
+            Event::SessionLocked => {
+                state.wm.session_locked = true;
+                state.wm.preselection = None;
+            }
+            Event::SessionUnlocked => state.wm.session_locked = false,
             Event::Window { id } => state.wm.windows.push_back(Window::new(id, qh)),
             Event::Output { id } => {
                 if state.wm.active_output.is_none() {
