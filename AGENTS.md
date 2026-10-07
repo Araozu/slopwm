@@ -1,6 +1,6 @@
 # Agent guidance
 
-slopwm is a small Rust 2024 floating window manager running as a Wayland client
+slopwm is a small Rust 2024 scrolling tiling window manager running as a Wayland client
 of River. Read `README.md` for usage and `docs/README.md` for development notes.
 
 - Keep changes small and follow the existing module boundaries: `src/app.rs`

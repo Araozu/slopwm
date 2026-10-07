@@ -1,9 +1,10 @@
 # slopwm development notes
 
 Research recorded on **2026-10-06** for a Rust window manager running on River.
-The repository now contains the imported tinyrwm floating manager, adapted to
-the documented protocols from River v0.4.8. Layout and desktop improvements
-beyond that baseline are planned work.
+The repository implements scrolling columns with optional vertical stacks,
+adapted from tinyrwm using River v0.4.8 protocols. It includes configurable
+borders, monitor growth direction, width steps, and soft/true fullscreen.
+The Rust demo walkthrough records the original floating reference.
 
 Read in this order:
 

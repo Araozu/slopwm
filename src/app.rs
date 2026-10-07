@@ -3,7 +3,12 @@
 
 //! Wayland connection, registry negotiation, and event loop.
 
-use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, protocol::wl_registry};
+use std::collections::HashMap;
+
+use wayland_client::{
+    Connection, Dispatch, Proxy, QueueHandle,
+    protocol::{wl_output, wl_registry},
+};
 
 use crate::config::Config;
 use crate::protocol::{
@@ -16,6 +21,7 @@ pub(crate) struct AppData {
     river_wm: Option<RiverWindowManagerV1>,
     pub(crate) river_xkb: Option<RiverXkbBindingsV1>,
     pub(crate) wm: WindowManager,
+    wl_outputs: HashMap<u32, wl_output::WlOutput>,
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for AppData {
@@ -66,8 +72,35 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppData {
                     );
                     state.river_xkb = Some(xkb);
                 }
+                "wl_output" => {
+                    let output =
+                        registry.bind::<wl_output::WlOutput, _, _>(name, version.min(4), qh, name);
+                    state.wl_outputs.insert(name, output);
+                }
                 _ => {}
             }
+        } else if let wl_registry::Event::GlobalRemove { name } = event
+            && let Some(output) = state.wl_outputs.remove(&name)
+        {
+            if output.version() >= 3 {
+                output.release();
+            }
+            state.wm.output_names.remove(&name);
+        }
+    }
+}
+
+impl Dispatch<wl_output::WlOutput, u32> for AppData {
+    fn event(
+        state: &mut Self,
+        _proxy: &wl_output::WlOutput,
+        event: wl_output::Event,
+        name: &u32,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        if let wl_output::Event::Name { name: output_name } = event {
+            state.wm.output_names.insert(*name, output_name);
         }
     }
 }

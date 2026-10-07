@@ -2,11 +2,37 @@
 # Copy to ~/.config/slopwm/config.yaml (or $XDG_CONFIG_HOME/slopwm/config.yaml).
 # This map replaces the default keyboard bindings. Use keybindings: {} for none.
 # Keys use case-sensitive XKB names; modifiers may be combined with '+'.
+border:
+  width: 2 # Logical pixels; use 0 to disable borders.
+  color: "#ffffff" # #RRGGBB or #RRGGBBAA; quote the value.
+
+scrolling:
+  growth_direction: left # New windows insert beside the focused tile.
+  default_width_percent: 50 # 1–98; existing windows keep their own widths.
+
+# Override growth direction by Wayland output name (e.g. DP-1 or HDMI-A-1).
+monitors: {}
+# monitors:
+#   DP-1: {growth_direction: right}
+#   HDMI-A-1: {growth_direction: left}
+
 keybindings:
   "Super+space":
     spawn: [foot]
   "Super+q": close
   "Super+n": focus-next
+  "Super+p": focus-previous
+  "Super+Up": focus-up
+  "Super+Down": focus-down
+  "Super+Shift+Right": stack-next
+  "Super+Shift+Left": stack-previous
+  "Super+u": unstack
+  "Super+m": focus-output-next
+  "Super+Shift+m": focus-output-previous
+  "Super+f": toggle-soft-fullscreen
+  "Super+Shift+f": toggle-fullscreen
+  "Super+equal": {change-width-percent: 10}
+  "Super+minus": {change-width-percent: -10}
   "Super+Escape": exit # Exits the entire Wayland session.
 
 # Other examples to add to the map above:

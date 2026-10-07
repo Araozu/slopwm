@@ -5,7 +5,7 @@
 name = "slopwm"
 version = "0.1.0"
 edition = "2024"
-description = "A small floating window manager for River"
+description = "A small scrolling tiling window manager for River"
 license = "0BSD"
 
 [dependencies]

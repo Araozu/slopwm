@@ -23,24 +23,108 @@ pub(crate) struct KeyBinding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Config {
     pub(crate) keybindings: Vec<KeyBinding>,
+    pub(crate) border: BorderConfig,
+    pub(crate) scrolling: ScrollingConfig,
+    pub(crate) monitors: BTreeMap<String, MonitorConfig>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum GrowthDirection {
+    #[default]
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MonitorConfig {
+    pub(crate) growth_direction: GrowthDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct ScrollingConfig {
+    pub(crate) growth_direction: GrowthDirection,
+    pub(crate) default_width_percent: u8,
+}
+
+impl Default for ScrollingConfig {
+    fn default() -> Self {
+        Self {
+            growth_direction: GrowthDirection::Left,
+            default_width_percent: 50,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BorderConfig {
+    pub(crate) width: i32,
+    pub(crate) color: [u32; 4],
+}
+
+impl Default for BorderConfig {
+    fn default() -> Self {
+        Self {
+            width: 2,
+            color: [u32::MAX; 4],
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct FileBorder {
+    width: i32,
+    color: String,
+}
+
+impl Default for FileBorder {
+    fn default() -> Self {
+        Self {
+            width: 2,
+            color: "#ffffff".into(),
+        }
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         let keybindings = [
-            (xkb::keysyms::KEY_space, Action::Spawn(vec!["foot".into()])),
-            (xkb::keysyms::KEY_q, Action::Close),
-            (xkb::keysyms::KEY_n, Action::FocusNext),
-            (xkb::keysyms::KEY_Escape, Action::Exit),
+            ("Super+space", Action::Spawn(vec!["foot".into()])),
+            ("Super+q", Action::Close),
+            ("Super+n", Action::FocusNext),
+            ("Super+p", Action::FocusPrevious),
+            ("Super+Up", Action::FocusUp),
+            ("Super+Down", Action::FocusDown),
+            ("Super+Shift+Right", Action::StackNext),
+            ("Super+Shift+Left", Action::StackPrevious),
+            ("Super+u", Action::Unstack),
+            ("Super+m", Action::FocusOutputNext),
+            ("Super+Shift+m", Action::FocusOutputPrevious),
+            ("Super+f", Action::ToggleSoftFullscreen),
+            ("Super+Shift+f", Action::ToggleFullscreen),
+            ("Super+equal", Action::ChangeWidthPercent(10)),
+            ("Super+minus", Action::ChangeWidthPercent(-10)),
+            ("Super+Escape", Action::Exit),
         ]
         .into_iter()
-        .map(|(keysym, action)| KeyBinding {
-            keysym,
-            modifiers: Modifiers::Mod4,
-            action,
+        .map(|(chord, action)| {
+            let (keysym, modifiers) = parse_chord(chord).expect("valid default shortcut");
+            KeyBinding {
+                keysym,
+                modifiers,
+                action,
+            }
         })
         .collect();
-        Self { keybindings }
+        Self {
+            keybindings,
+            border: BorderConfig::default(),
+            scrolling: ScrollingConfig::default(),
+            monitors: BTreeMap::new(),
+        }
     }
 }
 
@@ -59,6 +143,12 @@ impl std::error::Error for ConfigError {}
 #[serde(deny_unknown_fields)]
 struct FileConfig {
     keybindings: Option<BTreeMap<String, BindingAction>>,
+    #[serde(default)]
+    border: FileBorder,
+    #[serde(default)]
+    scrolling: ScrollingConfig,
+    #[serde(default)]
+    monitors: BTreeMap<String, MonitorConfig>,
 }
 
 #[derive(Deserialize)]
@@ -66,12 +156,20 @@ struct FileConfig {
 enum BindingAction {
     Named(String),
     Spawn(SpawnCommand),
+    ChangeWidth(WidthChange),
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SpawnCommand {
     spawn: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WidthChange {
+    #[serde(rename = "change-width-percent")]
+    percent: i16,
 }
 
 impl Config {
@@ -105,8 +203,28 @@ impl Config {
     fn parse(source: &str) -> Result<Self, ConfigError> {
         let file: FileConfig = serde_saphyr::from_str(source)
             .map_err(|error| ConfigError(format!("invalid YAML configuration: {error}")))?;
+        if !(1..=98).contains(&file.scrolling.default_width_percent) {
+            return Err(ConfigError(
+                "scrolling.default_width_percent must be between 1 and 98".into(),
+            ));
+        }
+        if file.border.width < 0 {
+            return Err(ConfigError("border.width must be nonnegative".into()));
+        }
+        if file.monitors.keys().any(|name| name.trim().is_empty()) {
+            return Err(ConfigError("monitor names must not be empty".into()));
+        }
+        let mut config = Self {
+            border: BorderConfig {
+                width: file.border.width,
+                color: parse_color(&file.border.color)?,
+            },
+            scrolling: file.scrolling,
+            monitors: file.monitors,
+            ..Self::default()
+        };
         let Some(bindings) = file.keybindings else {
-            return Ok(Self::default());
+            return Ok(config);
         };
 
         let mut seen = HashMap::new();
@@ -127,8 +245,37 @@ impl Config {
                 action,
             });
         }
-        Ok(Self { keybindings })
+        config.keybindings = keybindings;
+        Ok(config)
     }
+
+    pub(crate) fn growth_direction(&self, output_name: Option<&str>) -> GrowthDirection {
+        output_name
+            .and_then(|name| self.monitors.get(name))
+            .map_or(self.scrolling.growth_direction, |monitor| {
+                monitor.growth_direction
+            })
+    }
+}
+
+fn parse_color(color: &str) -> Result<[u32; 4], ConfigError> {
+    let hex = color.strip_prefix('#').unwrap_or_default();
+    if !matches!(hex.len(), 6 | 8) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(ConfigError(
+            "border.color must be '#RRGGBB' or '#RRGGBBAA'".into(),
+        ));
+    }
+    let mut channels = [255_u32; 4];
+    for (index, pair) in hex.as_bytes().chunks_exact(2).enumerate() {
+        channels[index] = u32::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap();
+    }
+    let alpha = channels[3];
+    for channel in &mut channels[..3] {
+        *channel =
+            ((u64::from(*channel) * u64::from(alpha) * u64::from(u32::MAX)) / (255 * 255)) as u32;
+    }
+    channels[3] = alpha * 0x01010101;
+    Ok(channels)
 }
 
 fn default_path(xdg_config_home: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
@@ -186,9 +333,19 @@ fn parse_action(action: BindingAction) -> Result<Action, String> {
         BindingAction::Named(name) => match name.as_str() {
             "close" => Ok(Action::Close),
             "focus-next" => Ok(Action::FocusNext),
+            "focus-previous" => Ok(Action::FocusPrevious),
+            "focus-up" => Ok(Action::FocusUp),
+            "focus-down" => Ok(Action::FocusDown),
+            "stack-next" => Ok(Action::StackNext),
+            "stack-previous" => Ok(Action::StackPrevious),
+            "unstack" => Ok(Action::Unstack),
+            "focus-output-next" => Ok(Action::FocusOutputNext),
+            "focus-output-previous" => Ok(Action::FocusOutputPrevious),
+            "toggle-soft-fullscreen" => Ok(Action::ToggleSoftFullscreen),
+            "toggle-fullscreen" => Ok(Action::ToggleFullscreen),
             "exit" => Ok(Action::Exit),
             _ => Err(format!(
-                "unknown action {name:?}; expected close, focus-next, exit, or a spawn argument list"
+                "unknown action {name:?}; see README.md for supported actions"
             )),
         },
         BindingAction::Spawn(command) => {
@@ -203,6 +360,14 @@ fn parse_action(action: BindingAction) -> Result<Action, String> {
                 return Err("spawn arguments must not contain NUL characters".into());
             }
             Ok(Action::Spawn(command.spawn))
+        }
+        BindingAction::ChangeWidth(change) => {
+            if change.percent == 0 || !(-97..=97).contains(&change.percent) {
+                return Err(
+                    "change-width-percent must be between -97 and 97, excluding zero".into(),
+                );
+            }
+            Ok(Action::ChangeWidthPercent(change.percent))
         }
     }
 }
@@ -254,6 +419,52 @@ mod tests {
                 .keybindings
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn layout_settings_preserve_default_bindings_and_monitor_overrides() {
+        let config = Config::parse("border: {width: 4, color: '#ff000080'}\nscrolling: {default_width_percent: 40}\nmonitors:\n  DP-1: {growth_direction: right}\n").unwrap();
+        assert_eq!(config.keybindings, Config::default().keybindings);
+        assert_eq!(config.border.width, 4);
+        assert_eq!(config.border.color, [0x80808080, 0, 0, 0x80808080]);
+        assert_eq!(config.scrolling.default_width_percent, 40);
+        assert_eq!(
+            config.growth_direction(Some("DP-1")),
+            GrowthDirection::Right
+        );
+        assert_eq!(
+            config.growth_direction(Some("HDMI-A-1")),
+            GrowthDirection::Left
+        );
+        assert_eq!(config.growth_direction(None), GrowthDirection::Left);
+        assert_eq!(
+            parse_color("#123456").unwrap(),
+            [0x12121212, 0x34343434, 0x56565656, u32::MAX]
+        );
+    }
+
+    #[test]
+    fn layout_and_width_actions_reject_invalid_configurations() {
+        for source in [
+            "border: {width: -1}",
+            "border: {color: '#12345'}",
+            "border: {color: '#gggggg'}",
+            "border: {color: '#ffffff', typo: 1}",
+            "scrolling: {default_width_percent: 0}",
+            "scrolling: {default_width_percent: 99}",
+            "scrolling: {growth_direction: up}",
+            "monitors: {'': {growth_direction: left}}",
+            "monitors: {DP-1: {growth_direction: left, typo: 1}}",
+            "keybindings: {F1: {change-width-percent: 0}}",
+            "keybindings: {F1: {change-width-percent: 98}}",
+            "keybindings: {F1: {change-width-percent: -98}}",
+            "keybindings: {F1: {change-width-percent: 1.5}}",
+            "keybindings: {F1: {change-width-percent: 10, typo: 1}}",
+        ] {
+            assert!(Config::parse(source).is_err(), "accepted {source:?}");
+        }
+        let config = Config::parse("keybindings: {F1: {change-width-percent: -7}}").unwrap();
+        assert_eq!(config.keybindings[0].action, Action::ChangeWidthPercent(-7));
     }
 
     #[test]

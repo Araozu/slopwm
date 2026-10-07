@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2026 Julian Andrews
 // SPDX-License-Identifier: 0BSD
 
-//! Seat state, focus policy, actions, and seat events.
+//! Seat focus, queued keyboard actions, and seat events.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -11,32 +11,21 @@ use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use crate::action::Action;
 use crate::app::AppData;
 use crate::protocol::{
-    river_seat_v1::RiverSeatV1,
-    river_window_manager_v1::RiverWindowManagerV1,
-    river_window_v1::{Edges, RiverWindowV1},
+    river_seat_v1::RiverSeatV1, river_window_manager_v1::RiverWindowManagerV1,
+    river_window_v1::RiverWindowV1,
 };
 
-use super::{
-    bindings::{PointerBinding, XkbBinding},
-    operation::SeatOp,
-    window::Window,
-};
+use super::{WindowManager, bindings::XkbBinding};
 
 #[derive(Debug)]
 pub(super) struct Seat {
     pub(super) proxy: RiverSeatV1,
     pub(super) new: bool,
     pub(super) removed: bool,
-    focused: Option<RiverWindowV1>,
-    hovered: Option<RiverWindowV1>,
+    pub(super) focused: Option<RiverWindowV1>,
     pub(super) interacted: Option<RiverWindowV1>,
     pub(super) xkb_bindings: HashMap<ObjectId, XkbBinding>,
-    pub(super) pointer_bindings: HashMap<ObjectId, PointerBinding>,
-    pub(super) pending_action: Option<Action>,
-    pub(super) op: SeatOp,
-    pub(super) op_dx: i32,
-    pub(super) op_dy: i32,
-    pub(super) op_release: bool,
+    pub(super) pending_actions: VecDeque<Action>,
 }
 
 impl Seat {
@@ -46,76 +35,97 @@ impl Seat {
             new: true,
             removed: false,
             focused: None,
-            hovered: None,
             interacted: None,
             xkb_bindings: HashMap::new(),
-            pointer_bindings: HashMap::new(),
-            pending_action: None,
-            op: SeatOp::None,
-            op_dx: 0,
-            op_dy: 0,
-            op_release: false,
+            pending_actions: VecDeque::new(),
         }
     }
 
-    pub(super) fn do_action(
-        &mut self,
-        windows: &mut VecDeque<Window>,
-        wm_proxy: &RiverWindowManagerV1,
-    ) {
-        let Some(action) = self.pending_action.take() else {
+    pub(super) fn do_actions(&mut self, wm: &mut WindowManager, proxy: &RiverWindowManagerV1) {
+        while let Some(action) = self.pending_actions.pop_front() {
+            match action {
+                Action::Spawn(argv) => {
+                    // Keep protocol logging out of spawned applications.
+                    if let Err(error) = std::process::Command::new(&argv[0])
+                        .args(&argv[1..])
+                        .env_remove("WAYLAND_DEBUG")
+                        .spawn()
+                    {
+                        eprintln!("Failed to spawn {:?}: {error}", argv[0]);
+                    }
+                }
+                Action::Close => {
+                    if let Some(window) = self.focused.as_ref() {
+                        window.close();
+                    }
+                }
+                Action::FocusNext | Action::FocusPrevious => {
+                    wm.cycle_window(matches!(action, Action::FocusPrevious));
+                }
+                Action::FocusUp | Action::FocusDown => {
+                    wm.focus_vertical(matches!(action, Action::FocusUp));
+                }
+                Action::StackNext | Action::StackPrevious => {
+                    wm.stack_window(matches!(action, Action::StackPrevious));
+                }
+                Action::Unstack => wm.unstack_window(),
+                Action::ChangeWidthPercent(delta) => {
+                    if let Some(window) = self.focused.as_ref() {
+                        wm.change_width(window, delta);
+                    }
+                }
+                Action::FocusOutputNext | Action::FocusOutputPrevious => {
+                    wm.cycle_output(matches!(action, Action::FocusOutputPrevious));
+                }
+                Action::ToggleSoftFullscreen | Action::ToggleFullscreen => {
+                    if let Some(window) = wm
+                        .windows
+                        .iter_mut()
+                        .find(|window| Some(&window.proxy) == self.focused.as_ref())
+                    {
+                        match action {
+                            Action::ToggleSoftFullscreen => {
+                                window.fullscreen = false;
+                                window.fullscreen_requested = None;
+                                window.soft_fullscreen_requested = None;
+                                window.tile_width.soft_fullscreen =
+                                    !window.tile_width.soft_fullscreen;
+                            }
+                            Action::ToggleFullscreen => {
+                                window.fullscreen =
+                                    !window.fullscreen_requested.unwrap_or(window.fullscreen);
+                                window.fullscreen_requested = None;
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+                Action::Exit => proxy.exit_session(),
+            }
+            self.sync_focus(wm);
+        }
+    }
+
+    pub(super) fn sync_focus(&mut self, wm: &WindowManager) {
+        let focused = wm
+            .active_output
+            .as_ref()
+            .and_then(|id| wm.outputs.get(id))
+            .and_then(|output| output.focused.as_ref());
+        if self.focused.as_ref() == focused {
             return;
-        };
-        match action {
-            // Don't pass WAYLAND_DEBUG on to children, the added noise makes
-            // debugging the window manager itself impractical.
-            Action::Spawn(argv) => match std::process::Command::new(&argv[0])
-                .args(&argv[1..])
-                .env_remove("WAYLAND_DEBUG")
-                .spawn()
-            {
-                Ok(_) => {}
-                Err(e) => eprintln!("Failed to spawn {:?}: {e}", argv[0]),
-            },
-            Action::Close => {
-                if let Some(window_proxy) = self.focused.as_ref() {
-                    window_proxy.close();
-                }
-            }
-            Action::FocusNext => {
-                if !windows.is_empty() {
-                    windows.rotate_left(1);
-                    self.focus_top(windows);
-                }
-            }
-            Action::Move => {
-                if let (Some(window_proxy), SeatOp::None) = (self.hovered.as_ref(), &self.op) {
-                    let window = windows
-                        .iter()
-                        .find(|window| &window.proxy == window_proxy)
-                        .expect("Hovered window not found");
-                    self.pointer_move(window);
-                }
-            }
-            Action::Resize => {
-                if let (Some(window_proxy), SeatOp::None) = (self.hovered.as_ref(), &self.op) {
-                    let window = windows
-                        .iter()
-                        .find(|window| &window.proxy == window_proxy)
-                        .expect("Hovered window not found");
-                    self.pointer_resize(window, Edges::Bottom.union(Edges::Right));
-                }
-            }
-            Action::Exit => wm_proxy.exit_session(),
         }
-    }
-
-    pub(super) fn focus_top(&mut self, windows: &VecDeque<Window>) {
-        match windows.back() {
+        match focused {
             Some(window) => {
-                self.proxy.focus_window(&window.proxy);
-                window.node.place_top();
-                self.focused = Some(window.proxy.clone());
+                self.proxy.focus_window(window);
+                if let Some(window) = wm
+                    .windows
+                    .iter()
+                    .find(|candidate| &candidate.proxy == window)
+                {
+                    window.node.place_top();
+                }
+                self.focused = Some(window.clone());
             }
             None => {
                 self.proxy.clear_focus();
@@ -135,19 +145,20 @@ impl Dispatch<RiverSeatV1, ()> for AppData {
         _qh: &QueueHandle<Self>,
     ) {
         use crate::protocol::river_seat_v1::Event;
-        let seat = state.wm.seats.get_mut(&proxy.id()).expect("Seat not found");
+        let Some(seat) = state.wm.seats.get_mut(&proxy.id()) else {
+            return;
+        };
         match event {
             Event::Removed => seat.removed = true,
-            Event::WlSeat { name: _ } => {}
-            Event::PointerEnter { window } => seat.hovered = Some(window),
-            Event::PointerLeave => seat.hovered = None,
             Event::WindowInteraction { window } => seat.interacted = Some(window),
-            Event::ShellSurfaceInteraction {
-                shell_surface: _shell_surface,
-            } => {}
-            Event::OpDelta { dx, dy } => (seat.op_dx, seat.op_dy) = (dx, dy),
-            Event::OpRelease => seat.op_release = true,
-            Event::PointerPosition { x: _, y: _ } => {}
+            // Pointer motion never changes keyboard or monitor focus.
+            Event::PointerEnter { .. }
+            | Event::PointerLeave
+            | Event::PointerPosition { .. }
+            | Event::WlSeat { .. }
+            | Event::ShellSurfaceInteraction { .. }
+            | Event::OpDelta { .. }
+            | Event::OpRelease => {}
         }
     }
 }

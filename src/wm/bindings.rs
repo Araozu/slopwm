@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2026 Julian Andrews
 // SPDX-License-Identifier: 0BSD
 
-//! Configured keyboard bindings, default pointer bindings, and binding lifecycle.
+//! Configured keyboard bindings and binding lifecycle.
 
 use wayland_backend::client::ObjectId;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
@@ -10,8 +10,8 @@ use crate::action::Action;
 use crate::app::AppData;
 use crate::config::KeyBinding;
 use crate::protocol::{
-    river_pointer_binding_v1::RiverPointerBindingV1, river_seat_v1::Modifiers,
-    river_xkb_binding_v1::RiverXkbBindingV1, river_xkb_bindings_v1::RiverXkbBindingsV1,
+    river_seat_v1::Modifiers, river_xkb_binding_v1::RiverXkbBindingV1,
+    river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
 
 use super::seat::Seat;
@@ -22,12 +22,6 @@ pub(super) struct XkbBinding {
     action: Action,
 }
 
-#[derive(Debug)]
-pub(super) struct PointerBinding {
-    proxy: RiverPointerBindingV1,
-    action: Action,
-}
-
 impl Seat {
     pub(super) fn init_bindings(
         &mut self,
@@ -35,11 +29,6 @@ impl Seat {
         qh: &QueueHandle<AppData>,
         keybindings: &[KeyBinding],
     ) {
-        // See linux/input-event-codes.h
-        const BTN_LEFT: u32 = 0x110;
-        const BTN_RIGHT: u32 = 0x111;
-        let mods = Modifiers::Mod4;
-
         if self.new {
             for binding in keybindings {
                 self.create_xkb_binding(
@@ -50,17 +39,12 @@ impl Seat {
                     binding.action.clone(),
                 );
             }
-            self.create_pointer_binding(qh, mods, BTN_LEFT, Action::Move);
-            self.create_pointer_binding(qh, mods, BTN_RIGHT, Action::Resize);
             self.new = false;
         }
     }
 
     pub(super) fn destroy_bindings(&mut self) {
         self.xkb_bindings
-            .values_mut()
-            .for_each(|binding| binding.proxy.destroy());
-        self.pointer_bindings
             .values_mut()
             .for_each(|binding| binding.proxy.destroy());
     }
@@ -77,21 +61,6 @@ impl Seat {
         proxy.enable();
         let binding = XkbBinding { proxy, action };
         self.xkb_bindings.insert(binding.proxy.id(), binding);
-    }
-
-    fn create_pointer_binding(
-        &mut self,
-        qh: &QueueHandle<AppData>,
-        mods: Modifiers,
-        button: u32,
-        action: Action,
-    ) {
-        let proxy = self
-            .proxy
-            .get_pointer_binding(button, mods, qh, self.proxy.id());
-        proxy.enable();
-        let binding = PointerBinding { proxy, action };
-        self.pointer_bindings.insert(binding.proxy.id(), binding);
     }
 }
 
@@ -111,31 +80,9 @@ impl Dispatch<RiverXkbBindingV1, ObjectId> for AppData {
             .get(&proxy.id())
             .expect("xkb_binding not found");
         match event {
-            Event::Pressed => seat.pending_action = Some(binding.action.clone()),
+            Event::Pressed => seat.pending_actions.push_back(binding.action.clone()),
             Event::Released => {}
             Event::StopRepeat => {}
-        }
-    }
-}
-
-impl Dispatch<RiverPointerBindingV1, ObjectId> for AppData {
-    fn event(
-        state: &mut Self,
-        proxy: &RiverPointerBindingV1,
-        event: <RiverPointerBindingV1 as Proxy>::Event,
-        data: &ObjectId,
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-        use crate::protocol::river_pointer_binding_v1::Event;
-        let seat = state.wm.seats.get_mut(data).expect("Seat not found");
-        let binding = seat
-            .pointer_bindings
-            .get(&proxy.id())
-            .expect("pointer_binding not found");
-        match event {
-            Event::Pressed => seat.pending_action = Some(binding.action.clone()),
-            Event::Released => {}
         }
     }
 }

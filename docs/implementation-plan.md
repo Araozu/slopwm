@@ -1,9 +1,8 @@
 # Rust implementation and next steps
 
-The imported tinyrwm floating implementation is split into modules by
-responsibility, with released River v0.4.8 protocols and a dependency lockfile.
-Keyboard bindings and spawned commands are configured through YAML at startup.
-The final layout style and workspace model are still decisions to make.
+The tinyrwm-derived implementation uses scrolling columns with optional vertical
+stacks, released River v0.4.8 protocols, and a dependency lockfile. YAML configures
+keyboard actions, borders, initial widths, and per-monitor growth directions.
 
 ## Module boundaries
 
@@ -18,26 +17,23 @@ The final layout style and workspace model are still decisions to make.
 | `src/wm/window.rs` | Window state, geometry, and window-event dispatch |
 | `src/wm/output.rs` | Output state and output-event dispatch |
 | `src/wm/seat.rs` | Seat state, focus policy, action execution, and seat-event dispatch |
-| `src/wm/bindings.rs` | Configured keyboard/default pointer bindings, binding lifecycle, and event dispatch |
-| `src/wm/operation.rs` | Pointer move/resize state, dimension proposals, and render positioning |
+| `src/wm/bindings.rs` | Configured keyboard bindings, binding lifecycle, and event dispatch |
+| `src/wm/columns.rs` | Column ordering, stack/unstack, focus navigation, and layout policy |
+| `src/wm/layout.rs` | Pure scrolling geometry, borders, width state, and vertical splitting |
 | `protocol/*.xml` | Reviewed protocol definitions with their original notices |
 
 Each object's dispatch implementation lives beside its state and behavior.
 Incoming object and binding events accumulate pending state; the manager invokes
-policy and pointer-operation helpers at the manage/render boundaries and sends
-the finish requests. Manager internals stay within the `wm` module. The event
+policy helpers at the manage/render boundaries and sends the finish requests.
+Manager internals stay within the `wm` module. The event
 loop still uses one queue and thread, as in the example.
 
-As layout policy grows, extract geometry calculations that can be independent
-of Wayland proxies. Introduce an event-loop framework when timers or IPC
-actually require one.
-
-Pointer operations retain their starting geometry separately from the
-application's confirmed dimensions. Seat state tracks focus, hovered windows,
-cumulative motion, and pending actions explicitly. Future layout state should
-also store desired placement and dimensions separately from confirmed geometry.
-Keep focus order separate from render order if the eventual policy requires
-them to differ.
+Geometry calculations in `layout.rs` are independent of Wayland proxies.
+Windows retain width percentages and column membership separately from desired
+tile rectangles, cached dimension proposals, and confirmed content dimensions.
+Focus and render order are independent of stable column/row order. Scrolled-away
+windows keep their monitor membership; visibility is never used to infer it.
+Floating pointer operations are removed. Pointer motion does not change focus.
 
 The current handlers propose dimensions during manage and reconcile geometry
 against confirmed dimensions during render. Both handlers complete each
@@ -47,23 +43,25 @@ manage/render rules.
 
 ## Milestones
 
-1. **Imported baseline.** Floating windows, click-to-focus/raise, focus cycling,
-   `foot` spawning, window closure, and pointer move/resize are present. Generated
+1. **Imported baseline.** The original floating manager supplied click-to-focus,
+   focus cycling, `foot` spawning, and pointer operations. Scrolling tiling now
+   replaces its floating geometry and pointer move/resize policy. Generated
    bindings negotiate management 4–5 and XKB 1–3 using released, documented XML.
-2. **Harden the small floating manager.** Keyboard bindings and terminal/command
+2. **Harden the manager.** Keyboard bindings and terminal/command
    spawning are now configurable with YAML; `--check-config` validates offline.
-   Add complete object cleanup and graceful manager shutdown, and replace brittle
-   state lookups with tolerant handling of obsolete objects. See the
-   [reference gaps](rust-demo.md#gaps-to-address-in-slopwm).
+   Closed window/node and removed output/seat objects are destroyed. Add graceful
+   manager shutdown and tolerant handling of remaining obsolete-object lookups.
+   See the [reference gaps](rust-demo.md#gaps-to-address-in-slopwm).
 3. **Track real output and application state.** Output rectangles, stable active
-   monitor placement, and recovery of off-screen windows after output changes
-   are present. Add explicit monitor-switching bindings, handle application size
-   changes and parent relationships, implement fullscreen, and publish accurate
-   capabilities.
-4. **Choose and implement slopwm's layout policy.** Add a tiling algorithm or
-   richer floating behavior, then visibility/workspace actions and configuration
-   for those policies.
-   Reuse the protocol backend rather than embedding requests in the algorithm.
+   monitor placement, monitor-switching bindings, and recovery after output
+   removal are present. Fullscreen/maximize capabilities match implemented
+   behavior. Application dimensions are confirmed separately and clipped to
+   allocations. Parent relationships remain future work.
+4. **Scrolling layout.** Stable-width columns grow left by default, with
+   per-monitor overrides. Stack/unstack actions support vertical rows. The
+   focused column keeps a 1% left inset; soft fullscreen occupies 98% width and
+   full height, while true fullscreen delegates to River. Workspace policy
+   remains future work.
 5. **Make daily operation predictable.** Add useful diagnostics, configuration
    reload through `manage_dirty()`, lock-aware bindings, and any needed timer/IPC
    integration. Gate optional protocol extensions by negotiated versions.
@@ -78,8 +76,9 @@ Run `cargo fmt --check`, `cargo check`, and `cargo test` for implementation chan
 Configuration tests cover replacement/default behavior, command arguments, XKB
 names/modifiers, invalid or conflicting bindings, and config-path fallback. For pure
 layout code, test invariants that can actually fail: positive content sizes,
-correct distribution of leftover pixels, negative output origins, and correct
-top/left resize anchoring. Avoid tests that just repeat request-building code.
+vertical distribution of leftover pixels, negative output origins, stable widths
+while scrolling, fullscreen restoration, and neighbor peeks. Avoid tests that
+just repeat request-building code.
 
 Use a controlled River session to check behavior beyond compilation:
 
@@ -87,8 +86,10 @@ Use a controlled River session to check behavior beyond compilation:
   into another application.
 - Resize a terminal whose actual size differs from the proposal; confirm the
   manager consumes returned dimensions and later render-only sequences.
-- Release a pointer operation and close a window during one; verify operations
-  and seat references are cleaned up.
+- Stack/unstack windows, focus rows, toggle soft fullscreen, and close a row;
+  verify height restoration, stable widths, and cleaned-up focus references.
+- Move the pointer between windows/outputs; verify keyboard and monitor focus
+  stay fixed. Click a visible neighboring tile and check explicit focus.
 - Reconfigure/remove an output and leave fullscreen; verify restored geometry
   and focus point to surviving objects.
 - Stop or restart the manager while applications remain open; distinguish this
@@ -99,3 +100,15 @@ Use a controlled River session to check behavior beyond compilation:
 Protocol logging with `WAYLAND_DEBUG=1` should show ordered finish requests,
 with no per-frame roundtrip introduced by our event loop. Interactive checks
 must confirm responsiveness as well as correct request ordering.
+
+Scrolling-layout validation on 2026-10-06 passed formatting, compilation,
+18 unit tests, and offline example configuration validation. An isolated River
+0.4.8 session with two headless monitors and virtual input passed 20 checks for
+growth direction, scrolling, keyboard/click focus, pointer focus invariance,
+stack/unstack, fullscreen restoration, width steps, output removal, object
+cleanup, and ordered manage/render completion. A separate XDG client deliberately
+returned content 17 pixels wider and 11 pixels taller than requested; screenshot
+pixels confirmed clipping, configured borders, the inset, and full output
+coverage in true fullscreen. Its application maximize/fullscreen requests also
+restored the expected tile. Physical-monitor interaction and older negotiated
+protocol versions were not exercised in that session.
