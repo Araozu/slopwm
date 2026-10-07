@@ -4,7 +4,26 @@
 
 use std::time::{Duration, Instant};
 
+use crate::config::FrameInterval;
+
 use super::layout::TileGeometry;
+
+/// A single sequence updates all animated outputs, so use the fastest of those
+/// outputs. Refresh is in millihertz; preserve fractional rates and sub-ms time.
+pub(super) fn frame_interval(
+    setting: FrameInterval,
+    refreshes: impl Iterator<Item = Option<i32>>,
+) -> Option<Duration> {
+    refreshes
+        .map(|refresh| match setting {
+            FrameInterval::Milliseconds(ms) => Duration::from_millis(u64::from(ms)),
+            FrameInterval::Auto => {
+                let refresh = refresh.filter(|rate| *rate > 0).unwrap_or(60_000) as u64;
+                Duration::from_nanos(1_000_000_000_000_u64.div_ceil(refresh))
+            }
+        })
+        .min()
+}
 
 #[derive(Debug, Default)]
 pub(super) struct TileAnimation {
@@ -106,6 +125,46 @@ fn interpolate(from: TileGeometry, to: TileGeometry, progress: f64) -> TileGeome
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_pacing_uses_refresh_without_millisecond_rounding() {
+        for (refresh, nanos) in [
+            (60_000, 16_666_667),
+            (120_000, 8_333_334),
+            (144_000, 6_944_445),
+            (59_940, 16_683_351),
+        ] {
+            assert_eq!(
+                frame_interval(FrameInterval::Auto, [Some(refresh)].into_iter()),
+                Some(Duration::from_nanos(nanos))
+            );
+        }
+        assert_eq!(frame_interval(FrameInterval::Auto, [].into_iter()), None);
+        assert_eq!(
+            frame_interval(
+                FrameInterval::Auto,
+                [Some(60_000), Some(144_000)].into_iter()
+            ),
+            Some(Duration::from_nanos(6_944_445))
+        );
+    }
+
+    #[test]
+    fn unknown_refresh_falls_back_and_manual_intervals_keep_working() {
+        for refresh in [None, Some(0), Some(-1)] {
+            assert_eq!(
+                frame_interval(FrameInterval::Auto, [refresh].into_iter()),
+                Some(Duration::from_nanos(16_666_667))
+            );
+        }
+        assert_eq!(
+            frame_interval(
+                FrameInterval::Milliseconds(8),
+                [Some(30_000), Some(144_000)].into_iter()
+            ),
+            Some(Duration::from_millis(8))
+        );
+    }
 
     fn tile(x: i32, width: i32) -> TileGeometry {
         TileGeometry {

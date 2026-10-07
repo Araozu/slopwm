@@ -43,6 +43,7 @@ pub(crate) struct WindowManager {
     outputs: HashMap<ObjectId, Output>,
     detached_workspaces: Vec<DetachedWorkspace>,
     pub(crate) output_names: HashMap<u32, String>,
+    output_refresh_rates: HashMap<u32, i32>,
     active_output: Option<ObjectId>,
     seats: HashMap<ObjectId, Seat>,
     input_devices: HashMap<ObjectId, InputDevice>,
@@ -199,9 +200,42 @@ impl WindowManager {
         proxy.render_finish();
         // An unsolicited render-only sequence does not acknowledge a pending
         // manage_dirty request. Keep that wakeup coalesced until manage_start.
-        self.next_animation_frame = (!self.animation_frame_pending
-            && self.windows.iter().any(|window| window.animation.active()))
-        .then(|| now + Duration::from_millis(u64::from(self.config.animations.frame_interval_ms)));
+        self.schedule_animation_frame(now);
+    }
+
+    fn schedule_animation_frame(&mut self, now: Instant) {
+        self.next_animation_frame = if self.quitting || self.animation_frame_pending {
+            None
+        } else {
+            let refreshes = self
+                .windows
+                .iter()
+                .filter(|window| window.animation.active())
+                .map(|window| {
+                    window
+                        .output
+                        .as_ref()
+                        .and_then(|id| self.outputs.get(id))
+                        .and_then(|output| output.wl_output_name)
+                        .and_then(|name| self.output_refresh_rates.get(&name).copied())
+                });
+            animation::frame_interval(self.config.animations.frame_interval_ms, refreshes)
+                .map(|interval| now + interval)
+        };
+    }
+
+    pub(crate) fn set_output_refresh(&mut self, name: u32, refresh: Option<i32>) {
+        match refresh {
+            Some(refresh) => {
+                self.output_refresh_rates.insert(name, refresh);
+            }
+            None => {
+                self.output_refresh_rates.remove(&name);
+            }
+        }
+        if self.next_animation_frame.is_some() {
+            self.schedule_animation_frame(Instant::now());
+        }
     }
 
     pub(crate) fn animation_timeout(&self, now: Instant) -> Option<Duration> {

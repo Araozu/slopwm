@@ -71,6 +71,20 @@ requests. Unchanged dimensions are never proposed again just to animate.
 No per-frame roundtrip or new protocol/version requirement is introduced.
 Idle and stopping sessions have no animation deadline.
 
+Automatic pacing reads the current `wl_output.mode` refresh rate in millihertz
+and ignores noncurrent advertised modes. A nanosecond deadline preserves
+fractional refresh rates. Only outputs with running animations contribute; the
+fastest sets the shared cadence, with a 60 Hz fallback for missing/zero refresh.
+Output removal clears cached refresh metadata, and mode changes reschedule
+pending timer deadlines. Numeric `frame_interval_ms` settings remain optional
+overrides; `auto` is the default.
+
+These timers pace management updates and do not synchronize them to vblank.
+Wayland recommends surface frame callbacks for synchronized rendering; River's
+bundled management interface has no equivalent callback for managed windows.
+See the [core Wayland specification](https://wayland.freedesktop.org/docs/html/apa.html)
+for the distinction between `wl_output.mode` refresh and `wl_surface.frame`.
+
 ## Objects and geometry
 
 | Object | Purpose |

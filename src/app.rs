@@ -182,6 +182,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppData {
                 output.release();
             }
             state.wm.output_names.remove(&name);
+            state.wm.set_output_refresh(name, None);
         }
     }
 }
@@ -195,8 +196,18 @@ impl Dispatch<wl_output::WlOutput, u32> for AppData {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
-        if let wl_output::Event::Name { name: output_name } = event {
-            state.wm.output_names.insert(*name, output_name);
+        match event {
+            wl_output::Event::Name { name: output_name } => {
+                state.wm.output_names.insert(*name, output_name);
+            }
+            wl_output::Event::Mode { flags, refresh, .. }
+                if flags
+                    .into_result()
+                    .is_ok_and(|flags| flags.contains(wl_output::Mode::Current)) =>
+            {
+                state.wm.set_output_refresh(*name, Some(refresh));
+            }
+            _ => {}
         }
     }
 }

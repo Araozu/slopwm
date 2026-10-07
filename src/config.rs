@@ -87,7 +87,36 @@ impl Default for KeyboardConfig {
 pub(crate) struct AnimationConfig {
     pub(crate) enabled: bool,
     pub(crate) duration_ms: u32,
-    pub(crate) frame_interval_ms: u32,
+    pub(crate) frame_interval_ms: FrameInterval,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum FrameInterval {
+    #[default]
+    Auto,
+    Milliseconds(u32),
+}
+
+impl<'de> Deserialize<'de> for FrameInterval {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        enum Mode {
+            #[serde(rename = "auto")]
+            Auto,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Value {
+            Mode(Mode),
+            Milliseconds(u32),
+        }
+
+        Ok(match Value::deserialize(deserializer)? {
+            Value::Mode(Mode::Auto) => Self::Auto,
+            Value::Milliseconds(ms) => Self::Milliseconds(ms),
+        })
+    }
 }
 
 impl Default for AnimationConfig {
@@ -95,7 +124,7 @@ impl Default for AnimationConfig {
         Self {
             enabled: true,
             duration_ms: 200,
-            frame_interval_ms: 16,
+            frame_interval_ms: FrameInterval::Auto,
         }
     }
 }
@@ -340,9 +369,11 @@ impl Config {
                 "animations.duration_ms must be between 0 and 60000".into(),
             ));
         }
-        if !(1..=1000).contains(&file.animations.frame_interval_ms) {
+        if let FrameInterval::Milliseconds(ms) = file.animations.frame_interval_ms
+            && !(1..=1000).contains(&ms)
+        {
             return Err(ConfigError(
-                "animations.frame_interval_ms must be between 1 and 1000".into(),
+                "animations.frame_interval_ms must be auto or between 1 and 1000".into(),
             ));
         }
         if !(1..=98).contains(&file.scrolling.default_width_percent) {
@@ -570,6 +601,14 @@ mod tests {
         assert!(!disabled.enabled);
         assert_eq!(disabled.duration_ms, defaults.duration_ms);
         assert_eq!(disabled.frame_interval_ms, defaults.frame_interval_ms);
+        assert_eq!(defaults.frame_interval_ms, FrameInterval::Auto);
+        assert_eq!(
+            Config::parse("animations: {frame_interval_ms: auto}")
+                .unwrap()
+                .animations
+                .frame_interval_ms,
+            FrameInterval::Auto
+        );
         for duration in [0, 1, 60_000] {
             for interval in [1, 16, 1000] {
                 let config = Config::parse(&format!(
@@ -577,7 +616,10 @@ mod tests {
                 ))
                 .unwrap();
                 assert_eq!(config.animations.duration_ms, duration);
-                assert_eq!(config.animations.frame_interval_ms, interval);
+                assert_eq!(
+                    config.animations.frame_interval_ms,
+                    FrameInterval::Milliseconds(interval)
+                );
                 assert!(config.animations.enabled);
             }
         }
@@ -595,6 +637,8 @@ mod tests {
             "frame_interval_ms: -1",
             "frame_interval_ms: 1001",
             "frame_interval_ms: 1.5",
+            "frame_interval_ms: null",
+            "frame_interval_ms: fast",
             "enabled: 3",
             "typo: 10",
         ] {
