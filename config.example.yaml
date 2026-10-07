@@ -1,41 +1,120 @@
 # SPDX-License-Identifier: 0BSD
-# Copy to ~/.config/slopwm/config.yaml (or $XDG_CONFIG_HOME/slopwm/config.yaml).
-# This map replaces the default keyboard bindings. Use keybindings: {} for none.
-# Keys use case-sensitive XKB names; modifiers may be combined with '+'.
+# Complete reference for every supported setting and keybinding action.
+# Active values below match the built-in defaults.
+#
+# Copy to $XDG_CONFIG_HOME/slopwm/config.yaml, or ~/.config/slopwm/config.yaml
+# when XDG_CONFIG_HOME is unset or invalid. Alternatively, pass --config PATH.
+# Validate without Wayland: cargo run -- --config config.example.yaml --check-config
+# Configuration is read at startup; restart slopwm after editing it.
+# Unknown settings/actions and duplicate shortcuts are rejected.
+
+# Window borders. Omitting this section or either field uses its default.
 border:
-  width: 2 # Logical pixels; use 0 to disable borders.
-  color: "#ffffff" # #RRGGBB or #RRGGBBAA; quote the value.
+  # Nonnegative integer in logical pixels; 0 disables borders. Default: 2.
+  # Borders are included in tile dimensions and shrink on very small tiles.
+  width: 2
 
+  # Quoted "#RRGGBB" or "#RRGGBBAA"; AA is alpha (00 transparent, ff opaque).
+  # Default: "#ffffff" (opaque white). True fullscreen suppresses borders.
+  color: "#ffffff"
+
+# Scrolling layout. Omitting this section or either field uses its default.
 scrolling:
-  growth_direction: left # New windows insert beside the focused tile.
-  default_width_percent: 50 # 1–98; existing windows keep their own widths.
+  # left | right: side of the focused column where new windows are inserted.
+  # Also chooses the side where unstack creates a new column. Default: left.
+  growth_direction: left
 
-# Override growth direction by Wayland output name (e.g. DP-1 or HDMI-A-1).
+  # Integer from 1 through 98, as a percentage of the monitor width. Default: 50.
+  # Applies to new windows; existing columns retain their own widths.
+  default_width_percent: 50
+
+# Per-monitor overrides. Default: {} (all monitors use the global direction).
+# Keys are Wayland output names, such as DP-1 or HDMI-A-1.
+# Output names require wl_output version 4; older outputs use the global setting.
+# Replace monitors: {} with the commented map below to enable overrides.
 monitors: {}
 # monitors:
-#   DP-1: {growth_direction: right}
-#   HDMI-A-1: {growth_direction: left}
+#   DP-1:
+#     growth_direction: right # left | right; required for each monitor entry.
+#   HDMI-A-1:
+#     growth_direction: left
 
+# Keyboard shortcuts. This map REPLACES all built-in keyboard bindings.
+# Omit the entire map to keep the defaults; keybindings: {} disables them.
+# Rename a shortcut to rebind it, or bind the same action to several distinct keys.
+#
+# Syntax: zero or more modifiers joined by '+', followed by an XKB keysym name.
+# Keys are case-sensitive and follow the active keyboard layout. Examples:
+# q, space, Return, Escape, F1, equal, minus, plus, XF86AudioMute.
+# Modifier names are case-insensitive; these are all supported names/aliases:
+#   Shift
+#   Ctrl | Control
+#   Alt | Mod1
+#   Super | Logo | Mod4
+#   Mod3
+#   Mod5
+# For example, Ctrl+Alt+Return combines modifiers; F1 has no modifier.
+# Do not repeat a modifier or bind the same shortcut through different aliases.
+#
+# Focus never follows the mouse. Clicking a window focuses and raises it.
 keybindings:
+  # Start a terminal. spawn takes [executable, argument, ...].
+  # Arguments run directly, with no shell expansion; quote arguments with spaces.
   "Super+space":
     spawn: [foot]
+
+  # Ask the focused application window to close.
   "Super+q": close
+
+  # Focus columns in physical left-to-right order on the active monitor.
+  # Both directions wrap at the ends and preserve the selected row when possible.
   "Super+n": focus-next
   "Super+p": focus-previous
+
+  # Focus the row above/below in the current column, wrapping at either end.
   "Super+Up": focus-up
   "Super+Down": focus-down
+
+  # Move the focused window into the column to the right/left, below its rows.
+  # Rows share the target column's width and split its height equally.
+  # If there is no neighboring column in that direction, nothing happens.
   "Super+Shift+Right": stack-next
   "Super+Shift+Left": stack-previous
+
+  # Give the focused window its own column on the configured growth side.
   "Super+u": unstack
+
+  # Focus the next/previous monitor by River's output positions, wrapping.
+  # Each monitor remembers its selected tile; empty monitors can be focused too.
   "Super+m": focus-output-next
   "Super+Shift+m": focus-output-previous
+
+  # Use 98% of the monitor width and its full height, temporarily hiding sibling
+  # rows. Toggle again to restore the previous width and vertical stack.
   "Super+f": toggle-soft-fullscreen
+
+  # Toggle River fullscreen, covering the whole monitor; toggle off to restore
+  # the tile. Focusing another tile on the same monitor also leaves fullscreen.
   "Super+Shift+f": toggle-fullscreen
+
+  # Add/subtract percentage POINTS of monitor width for the focused column.
+  # Each binding accepts an integer from -97 through 97, excluding 0.
+  # Width is clamped to 1–98%; stacked rows resize together. Leaves fullscreen.
   "Super+equal": {change-width-percent: 10}
   "Super+minus": {change-width-percent: -10}
-  "Super+Escape": exit # Exits the entire Wayland session.
 
-# Other examples to add to the map above:
-#  "Super+Return": {spawn: [foot, --title, "My terminal"]}
-#  "Super+d": {spawn: [fuzzel]}
-#  "XF86AudioMute": {spawn: [wpctl, set-mute, "@DEFAULT_AUDIO_SINK@", toggle]}
+  # Exit the entire Wayland session.
+  "Super+Escape": exit
+
+  # Optional bindings: uncomment within this map; install the commands you use.
+  # The terminal title below is passed as one argument, including its space.
+  # "Super+Return": {spawn: [foot, --title, "My terminal"]}
+  # "Super+d": {spawn: [fuzzel]}
+
+  # Shell syntax (such as $HOME, pipes, or redirection) needs an explicit shell.
+  # "Super+Shift+Return": {spawn: [sh, -c, 'exec foot --working-directory="$HOME"']}
+
+  # Media keys can be bound without modifiers.
+  # "XF86AudioMute": {spawn: [wpctl, set-mute, "@DEFAULT_AUDIO_SINK@", toggle]}
+  # "XF86AudioRaiseVolume": {spawn: [wpctl, set-volume, "@DEFAULT_AUDIO_SINK@", "5%+"]}
+  # "XF86AudioLowerVolume": {spawn: [wpctl, set-volume, "@DEFAULT_AUDIO_SINK@", "5%-"]}

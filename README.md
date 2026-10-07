@@ -46,7 +46,9 @@ WAYLAND_DEBUG=1 river -c ./target/debug/slopwm
 
 slopwm reads YAML from `$XDG_CONFIG_HOME/slopwm/config.yaml`, falling back to
 `~/.config/slopwm/config.yaml` when `XDG_CONFIG_HOME` is unset or invalid.
-Start with the [example config](config.example.yaml):
+The [example config](config.example.yaml) documents every supported setting and
+keybinding action, with defaults and commented customization examples. Copy it
+to get started:
 
 ```sh
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/slopwm"
