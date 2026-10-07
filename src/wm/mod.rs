@@ -22,13 +22,19 @@ use crate::protocol::{
     river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
 
-use self::{operation::SeatOp, output::Output, seat::Seat, window::Window};
+use self::{
+    operation::SeatOp,
+    output::{Output, OutputGeometry},
+    seat::Seat,
+    window::Window,
+};
 
 #[derive(Debug, Default)]
 pub(crate) struct WindowManager {
     config: Config,
     windows: VecDeque<Window>,
     outputs: HashMap<ObjectId, Output>,
+    active_output: Option<ObjectId>,
     seats: HashMap<ObjectId, Seat>,
 }
 
@@ -46,9 +52,9 @@ impl WindowManager {
         river_xkb: &RiverXkbBindingsV1,
         qh: &QueueHandle<AppData>,
     ) {
-        self.remove_outputs();
         self.remove_windows();
         self.remove_seats();
+        self.manage_outputs();
         self.init_new_windows();
         self.init_new_seats(river_xkb, qh);
         self.manage_windows();
@@ -63,14 +69,64 @@ impl WindowManager {
         proxy.render_finish();
     }
 
-    fn remove_outputs(&mut self) {
+    fn active_output_geometry(&self) -> Option<OutputGeometry> {
+        self.active_output
+            .as_ref()
+            .and_then(|id| self.outputs.get(id))
+            .map(|output| output.geometry)
+    }
+
+    fn manage_outputs(&mut self) {
+        let changed = self
+            .outputs
+            .values()
+            .any(|output| output.removed || output.changed);
         self.outputs.retain(|_, output| {
             if output.removed {
                 output.proxy.destroy();
                 return false;
             }
+            output.changed = false;
             true
         });
+
+        // Monitor focus stays put until its output disappears. Pointer position
+        // never selects a monitor; a future binding can change active_output.
+        if self.active_output_geometry().is_none() {
+            self.active_output = self
+                .outputs
+                .values()
+                .min_by_key(|output| (output.geometry.x, output.geometry.y))
+                .map(|output| output.proxy.id());
+        }
+        let Some(target) = self.active_output_geometry() else {
+            return;
+        };
+        if !changed {
+            return;
+        }
+
+        for window in self.windows.iter_mut().filter(|window| !window.new) {
+            if self.outputs.values().any(|output| {
+                output
+                    .geometry
+                    .intersects(window.x, window.y, window.width, window.height)
+            }) {
+                continue;
+            }
+            // Cancel an operation that would move the window back off-screen.
+            for seat in self.seats.values_mut() {
+                if let SeatOp::Move { window_proxy, .. } | SeatOp::Resize { window_proxy, .. } =
+                    &seat.op
+                    && window_proxy == &window.proxy
+                {
+                    seat.op_end();
+                    seat.op_release = false;
+                }
+            }
+            let (x, y) = target.clamp_position(window.x, window.y, window.width, window.height);
+            window.set_position(x, y);
+        }
     }
 
     fn remove_windows(&mut self) {
@@ -106,8 +162,10 @@ impl WindowManager {
     }
 
     fn init_new_windows(&mut self) {
+        let output = self.active_output_geometry();
         for window in self.windows.iter_mut().filter(|w| w.new) {
-            window.set_position(window.x, window.y);
+            let (x, y) = output.map_or((window.x, window.y), |output| (output.x, output.y));
+            window.set_position(x, y);
             window.proxy.propose_dimensions(window.width, window.height);
             window.new = false;
         }
@@ -189,6 +247,9 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
             Event::SessionUnlocked => {}
             Event::Window { id } => state.wm.windows.push_back(Window::new(id, qh)),
             Event::Output { id } => {
+                if state.wm.active_output.is_none() {
+                    state.wm.active_output = Some(id.id());
+                }
                 state.wm.outputs.insert(id.id(), Output::new(id));
             }
             Event::Seat { id } => {

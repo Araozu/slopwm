@@ -4,6 +4,13 @@ A Rust window manager for [River](https://isaacfreund.com/software/river/),
 starting from Julian Andrews's [tinyrwm Rust example](https://codeberg.org/river/tinyrwm).
 The baseline uses a floating layout with keyboard focus and pointer move/resize.
 
+Multiple monitors share one floating desktop using River's configured output
+positions. New windows open on a stable active monitor (initially the first
+output River reports); moving the pointer does not change monitor or keyboard
+focus. Drag windows between monitors with the existing move binding. If an
+output is removed or rearranged, windows left entirely off-screen move onto
+the active monitor. Monitor-switching keybindings will come later.
+
 ## Build and run
 
 ```sh

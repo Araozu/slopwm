@@ -55,9 +55,11 @@ manage/render rules.
    Add complete object cleanup and graceful manager shutdown, and replace brittle
    state lookups with tolerant handling of obsolete objects. See the
    [reference gaps](rust-demo.md#gaps-to-address-in-slopwm).
-3. **Track real output and application state.** Store output rectangles, move
-   windows to a remaining output after removal, handle size changes and parent
-   relationships, implement fullscreen, and publish accurate capabilities.
+3. **Track real output and application state.** Output rectangles, stable active
+   monitor placement, and recovery of off-screen windows after output changes
+   are present. Add explicit monitor-switching bindings, handle application size
+   changes and parent relationships, implement fullscreen, and publish accurate
+   capabilities.
 4. **Choose and implement slopwm's layout policy.** Add a tiling algorithm or
    richer floating behavior, then visibility/workspace actions and configuration
    for those policies.
