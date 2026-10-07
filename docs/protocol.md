@@ -2,7 +2,8 @@
 
 The detailed rules below are based on the bundled River v0.4.8
 [window-management XML](../protocol/river-window-management-v1.xml)
-and [XKB XML](../protocol/river-xkb-bindings-v1.xml).
+and [XKB XML](../protocol/river-xkb-bindings-v1.xml), plus the
+[input-management XML](../protocol/river-input-management-v1.xml).
 Consult the [online management reference](https://isaacfreund.com/docs/wayland/river-window-management-v1/)
 when updating the bundled specifications.
 
@@ -115,6 +116,20 @@ further input processing until the manage sequence finishes.
 Pointer bindings use Linux button codes: `BTN_LEFT = 0x110`,
 `BTN_RIGHT = 0x111`. The demo uses `Modifiers::Mod4` for Super.
 
+Keyboard repeat is configured through `river_input_manager_v1`, independently
+of XKB bindings. Device creation and type events accumulate local state;
+keyboard types request a manage sequence with `manage_dirty()`. At `manage_start`,
+slopwm sends `set_repeat_info(rate, delay)` once per new keyboard, using the same
+global configuration on every seat. Devices connected later follow the same
+path. Non-keyboard devices receive no repeat requests. Removal discards any
+pending configuration and explicitly destroys the device proxy.
+
+Input-device events do not follow the window-management sequence boundaries;
+the explicit wakeup ensures a new keyboard is configured even while idle.
+`set_repeat_info` is available since input-management version 1; version 1 does
+not send `done`, so configuration depends only on the immutable device type.
+The input manager is destroyed only after its `finished` event.
+
 For interactive movement or resizing:
 
 1. Save the original geometry and start `op_start_pointer()` during manage.
@@ -168,10 +183,13 @@ user command. Track session lock events when deciding which bindings stay active
 | --- | --- | --- | --- |
 | `river_window_manager_v1` | 4 / 4 | 5 | 4–5 |
 | `river_xkb_bindings_v1` | 2 / 1 | 3 | 1–3 |
+| `river_input_manager_v1` | — | 2 | 1–2 |
 
 The bundled maximums match the documentation checked on 2026-10-06 in the
-[management](https://isaacfreund.com/docs/wayland/river-window-management-v1/) and
-[XKB](https://isaacfreund.com/docs/wayland/river-xkb-bindings-v1/) references.
+[management](https://isaacfreund.com/docs/wayland/river-window-management-v1/),
+[XKB](https://isaacfreund.com/docs/wayland/river-xkb-bindings-v1/), and
+[input-management](https://isaacfreund.com/docs/wayland/river-input-management-v1/)
+references.
 They come from the tagged **River v0.4.8 release**, commit
 `c4b5f706314555f4846e25b8d3635631387b3fdd`; see
 [protocol provenance](../protocol/README.md). The installed compositor still
@@ -179,7 +197,8 @@ determines which version can actually be bound. `exit_session()` needs
 management interface version 4.
 
 slopwm preserves the demo's minimum requirements and binds the lesser of the
-advertised and generated versions. The imported handlers explicitly ignore the
+advertised and generated versions. Input management version 1 or newer is also
+required for keyboard repeat settings. The imported handlers explicitly ignore the
 version-5 window/output capture-session events; capture UI remains future work.
 The generated XKB seat interface includes version-3 modifier watching, but the
 baseline does not create that optional object. Gate any future newer requests

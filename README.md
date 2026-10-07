@@ -39,9 +39,10 @@ river -c ./target/release/slopwm
 ```
 
 Requires River exposing window-management interface version 4 or newer and
-XKB bindings version 1 or newer. The client negotiates up to the versions in
-its bundled XML. Build/run requires `libxkbcommon` (including its development
-files at build time). `foot` must be available for the default terminal binding.
+XKB bindings and input management version 1 or newer. The client negotiates up
+to the versions in its bundled XML. Build/run requires `libxkbcommon` (including
+its development files at build time). `foot` must be available for the default
+terminal binding.
 
 For protocol logging after a debug build:
 
@@ -63,6 +64,7 @@ cp config.example.yaml "${XDG_CONFIG_HOME:-$HOME/.config}/slopwm/config.yaml"
 ```
 
 ```yaml
+keyboard: {repeat_rate: 40, repeat_delay: 400}
 border: {width: 2, color: "#ffffff"}
 scrolling: {growth_direction: left, default_width_percent: 50}
 monitors:
@@ -101,6 +103,13 @@ keybindings:
 The `keybindings` map replaces all default keyboard bindings. Omit the map to
 keep the defaults, or use `keybindings: {}` to disable keyboard bindings. When
 the default file is absent, the built-in shortcuts below are used.
+
+`keyboard.repeat_rate` sets key repeats per second (default `40`), and
+`keyboard.repeat_delay` sets the delay before repeating in milliseconds (default
+`400`). Both accept nonnegative integers; a rate of `0` disables repeat. One
+setting applies to all keyboards on every seat, including keyboards connected
+after startup. Omitted fields use their defaults. These settings control repeat
+in applications; window-manager shortcuts trigger once per press.
 
 `border.width` is a nonnegative number of logical pixels; `0` disables borders.
 Colors accept quoted `"#RRGGBB"` or `"#RRGGBBAA"` values. Border space is included
@@ -205,7 +214,7 @@ cargo run -- --config config.example.yaml --check-config
 ```
 
 Use `--check-config` on its own to validate the default config path. Invalid YAML,
-unknown settings/actions/keys/modifiers, duplicate shortcuts, invalid geometry
+unknown settings/actions/keys/modifiers, duplicate shortcuts, invalid repeat or geometry
 settings, and empty spawn commands produce startup errors. A file explicitly
 selected with `--config` must exist. Configuration is loaded at startup;
 restart slopwm to apply changes.

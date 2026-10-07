@@ -2,7 +2,8 @@
 
 The tinyrwm-derived implementation uses scrolling columns with optional vertical
 stacks, released River v0.4.8 protocols, and a dependency lockfile. YAML configures
-keyboard actions, borders, initial widths, and per-monitor growth directions.
+keyboard actions, global keyboard repeat rate/delay, borders, initial widths,
+and per-monitor growth directions.
 
 ## Module boundaries
 
@@ -18,6 +19,7 @@ keyboard actions, borders, initial widths, and per-monitor growth directions.
 | `src/wm/output.rs` | Output state and output-event dispatch |
 | `src/wm/seat.rs` | Seat state, focus policy, action execution, and seat-event dispatch |
 | `src/wm/bindings.rs` | Configured keyboard bindings, binding lifecycle, and event dispatch |
+| `src/wm/input.rs` | Global keyboard repeat configuration and input-device lifecycle |
 | `src/wm/columns.rs` | Column ordering, stack/unstack, focus navigation, and layout policy |
 | `src/wm/workspaces.rs` | Per-output dynamic workspace lifecycle, remembered focus, navigation, and window moves |
 | `src/wm/layout.rs` | Pure scrolling geometry, borders, width state, and vertical splitting |
@@ -128,6 +130,18 @@ Use a controlled River session to check behavior beyond compilation:
 Protocol logging with `WAYLAND_DEBUG=1` should show ordered finish requests,
 with no per-frame roundtrip introduced by our event loop. Interactive checks
 must confirm responsiveness as well as correct request ordering.
+
+Keyboard-repeat validation on 2026-10-06 passed formatting, compilation,
+30 unit tests, and offline example configuration validation. An isolated nested
+River 0.4.8 session confirmed that an application received the configured
+73 repeats/second and 210 ms delay, keyboard removal destroyed its proxy, and
+idle keyboard reconnection applied the same settings. All manage/render
+sequences finished in order. A simulated protocol server additionally checked
+input-management versions 1 and 2, negotiation down from a newer advertised
+version, multiple keyboards, non-keyboard and unknown device types, zero rate
+and delay, removal before configuration, one-time configuration, manager
+cleanup, and an actionable error for a missing input-management global.
+Physical keyboard hotplug was not exercised.
 
 Scrolling-layout validation on 2026-10-06 passed formatting, compilation,
 18 unit tests, and offline example configuration validation. An isolated River

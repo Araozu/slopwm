@@ -12,7 +12,8 @@ use wayland_client::{
 
 use crate::config::Config;
 use crate::protocol::{
-    river_window_manager_v1::RiverWindowManagerV1, river_xkb_bindings_v1::RiverXkbBindingsV1,
+    river_input_manager_v1::RiverInputManagerV1, river_window_manager_v1::RiverWindowManagerV1,
+    river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
 use crate::wm::WindowManager;
 
@@ -20,10 +21,19 @@ use crate::wm::WindowManager;
 pub(crate) struct AppData {
     river_wm: Option<RiverWindowManagerV1>,
     pub(crate) river_xkb: Option<RiverXkbBindingsV1>,
+    pub(crate) river_input: Option<RiverInputManagerV1>,
     pub(crate) compositor: Option<wl_compositor::WlCompositor>,
     pub(crate) shm: Option<wl_shm::WlShm>,
     pub(crate) wm: WindowManager,
     wl_outputs: HashMap<u32, wl_output::WlOutput>,
+}
+
+impl AppData {
+    pub(crate) fn request_manage_sequence(&self) {
+        if let Some(wm) = &self.river_wm {
+            wm.manage_dirty();
+        }
+    }
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for AppData {
@@ -80,6 +90,14 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppData {
                     );
                     state.river_xkb = Some(xkb);
                 }
+                "river_input_manager_v1" => {
+                    state.river_input = Some(registry.bind::<RiverInputManagerV1, _, _>(
+                        name,
+                        version.min(RiverInputManagerV1::interface().version),
+                        qh,
+                        (),
+                    ));
+                }
                 "wl_output" => {
                     let output =
                         registry.bind::<wl_output::WlOutput, _, _>(name, version.min(4), qh, name);
@@ -135,6 +153,9 @@ pub(crate) fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     if app_data.river_xkb.is_none() {
         eprintln!("river_xkb_bindings_v1 global not found! Is river running with xkb support?");
         std::process::exit(1);
+    }
+    if app_data.river_input.is_none() {
+        return Err("River must expose river_input_manager_v1 for keyboard repeat settings".into());
     }
     if app_data.compositor.is_none() || app_data.shm.is_none() {
         return Err("River must expose wl_compositor and wl_shm for spawn previews".into());

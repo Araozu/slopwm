@@ -8,6 +8,15 @@
 # Configuration is read at startup; restart slopwm after editing it.
 # Unknown settings/actions and duplicate shortcuts are rejected.
 
+# Keyboard repeat for all keyboards, including those connected later.
+# Omitting this section or either field uses its default.
+keyboard:
+  # Nonnegative integer in repeats per second; 0 disables repeat. Default: 40.
+  repeat_rate: 40
+
+  # Nonnegative integer in milliseconds before repeating starts. Default: 400.
+  repeat_delay: 400
+
 # Window borders. Omitting this section or either field uses its default.
 border:
   # Nonnegative integer in logical pixels; 0 disables borders. Default: 2.
