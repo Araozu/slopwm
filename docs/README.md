@@ -3,7 +3,8 @@
 Research recorded on **2026-10-06** for a Rust window manager running on River.
 The repository implements scrolling columns with optional vertical stacks,
 adapted from tinyrwm using River v0.4.8 protocols. It includes configurable
-borders, monitor growth direction, width steps, and soft/true fullscreen.
+borders, keyboard repeat rate/delay, monitor growth direction, width steps,
+and soft/true fullscreen.
 Dynamic workspaces are independent per monitor and keep one empty workspace
 below the occupied ones.
 The Rust demo walkthrough records the original floating reference.
@@ -26,8 +27,9 @@ Read in this order:
 | Isaac Freund, [Separating the Wayland Compositor and Window Manager](https://isaacfreund.com/blog/river-window-management/), published 2026-03-15 | Design rationale |
 | [Online window-management specification](https://isaacfreund.com/docs/wayland/river-window-management-v1/) | Current reference; manager interface version 5 when checked |
 | [Online XKB bindings specification](https://isaacfreund.com/docs/wayland/river-xkb-bindings-v1/) | Current reference; global interface version 3 when checked |
+| [Online input-management specification](https://isaacfreund.com/docs/wayland/river-input-management-v1/) | Current reference; global interface version 2 when checked |
 | [Local Rust demo README](/home/fernando/projects/river/tinyrwm/rust/README.md) and [source](/home/fernando/projects/river/tinyrwm/rust/src/main.rs) | Concrete Rust implementation |
-| [Bundled protocol provenance](../protocol/README.md) | Released River v0.4.8 XML; management version 5 and XKB version 3 |
+| [Bundled protocol provenance](../protocol/README.md) | Released River v0.4.8 XML; management version 5, XKB version 3, and input management version 2 |
 | [Local window-management XML](/home/fernando/projects/river/tinyrwm/rust/protocol/river-window-management-v1.xml) and [XKB XML](/home/fernando/projects/river/tinyrwm/rust/protocol/river-xkb-bindings-v1.xml) | Original demo specifications; interface versions 4 and 2 respectively |
 
 The reference checkout is `/home/fernando/projects/river/tinyrwm`, at commit

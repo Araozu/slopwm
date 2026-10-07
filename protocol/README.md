@@ -8,6 +8,7 @@ The interface versions match the latest documented specifications at that date.
 | --- | --- | --- |
 | [river-window-management-v1.xml](river-window-management-v1.xml) | 5 | [Window management](https://isaacfreund.com/docs/wayland/river-window-management-v1/) |
 | [river-xkb-bindings-v1.xml](river-xkb-bindings-v1.xml) | 3 | [XKB bindings](https://isaacfreund.com/docs/wayland/river-xkb-bindings-v1/) |
+| [river-input-management-v1.xml](river-input-management-v1.xml) | 2 | [Input management](https://isaacfreund.com/docs/wayland/river-input-management-v1/) |
 
 Upstream source: [River v0.4.8 protocol directory](https://codeberg.org/river/river/src/tag/v0.4.8/protocol).
 Each file includes its original Isaac Freund copyright and MIT license notice.
@@ -15,7 +16,8 @@ Each file includes its original Isaac Freund copyright and MIT license notice.
 `wayland-scanner` generates Rust interfaces and client bindings during compilation;
 generated Rust files are not checked in. The client binds the lesser of the
 server's advertised version and the XML's maximum version, with minimum required
-versions 4 for management (`exit_session`) and 1 for XKB bindings.
+versions 4 for management (`exit_session`) and 1 for XKB bindings and input
+management (`set_repeat_info`).
 
 When updating, select a tagged release matching the documented versions, copy
 the original XML including license notices, review newly introduced messages,

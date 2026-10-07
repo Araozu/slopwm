@@ -23,9 +23,26 @@ pub(crate) struct KeyBinding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Config {
     pub(crate) keybindings: Vec<KeyBinding>,
+    pub(crate) keyboard: KeyboardConfig,
     pub(crate) border: BorderConfig,
     pub(crate) scrolling: ScrollingConfig,
     pub(crate) monitors: BTreeMap<String, MonitorConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct KeyboardConfig {
+    pub(crate) repeat_rate: i32,
+    pub(crate) repeat_delay: i32,
+}
+
+impl Default for KeyboardConfig {
+    fn default() -> Self {
+        Self {
+            repeat_rate: 40,
+            repeat_delay: 400,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -130,6 +147,7 @@ impl Default for Config {
         .collect();
         Self {
             keybindings,
+            keyboard: KeyboardConfig::default(),
             border: BorderConfig::default(),
             scrolling: ScrollingConfig::default(),
             monitors: BTreeMap::new(),
@@ -152,6 +170,8 @@ impl std::error::Error for ConfigError {}
 #[serde(deny_unknown_fields)]
 struct FileConfig {
     keybindings: Option<BTreeMap<String, BindingAction>>,
+    #[serde(default)]
+    keyboard: KeyboardConfig,
     #[serde(default)]
     border: FileBorder,
     #[serde(default)]
@@ -212,6 +232,16 @@ impl Config {
     fn parse(source: &str) -> Result<Self, ConfigError> {
         let file: FileConfig = serde_saphyr::from_str(source)
             .map_err(|error| ConfigError(format!("invalid YAML configuration: {error}")))?;
+        if file.keyboard.repeat_rate < 0 {
+            return Err(ConfigError(
+                "keyboard.repeat_rate must be nonnegative".into(),
+            ));
+        }
+        if file.keyboard.repeat_delay < 0 {
+            return Err(ConfigError(
+                "keyboard.repeat_delay must be nonnegative".into(),
+            ));
+        }
         if !(1..=98).contains(&file.scrolling.default_width_percent) {
             return Err(ConfigError(
                 "scrolling.default_width_percent must be between 1 and 98".into(),
@@ -224,6 +254,7 @@ impl Config {
             return Err(ConfigError("monitor names must not be empty".into()));
         }
         let mut config = Self {
+            keyboard: file.keyboard,
             border: BorderConfig {
                 width: file.border.width,
                 color: parse_color(&file.border.color)?,
@@ -437,6 +468,58 @@ mod tests {
                 .keybindings
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn keyboard_repeat_settings_use_defaults_and_allow_independent_overrides() {
+        let defaults = Config::default();
+        assert_eq!(
+            Config::parse("keyboard: {}").unwrap().keyboard,
+            defaults.keyboard
+        );
+        let config = Config::parse("keyboard: {repeat_rate: 60}").unwrap();
+        assert_eq!(config.keyboard.repeat_rate, 60);
+        assert_eq!(config.keyboard.repeat_delay, defaults.keyboard.repeat_delay);
+        assert_eq!(config.keybindings, defaults.keybindings);
+
+        let config = Config::parse("keyboard: {repeat_delay: 250}").unwrap();
+        assert_eq!(config.keyboard.repeat_rate, defaults.keyboard.repeat_rate);
+        assert_eq!(config.keyboard.repeat_delay, 250);
+        assert_eq!(
+            Config::parse(include_str!("../config.example.yaml"))
+                .unwrap()
+                .keyboard,
+            defaults.keyboard
+        );
+    }
+
+    #[test]
+    fn keyboard_repeat_accepts_zero_and_protocol_integer_limits() {
+        for (rate, delay) in [(0, 400), (40, 0), (0, 0), (i32::MAX, i32::MAX)] {
+            let config = Config::parse(&format!(
+                "keyboard: {{repeat_rate: {rate}, repeat_delay: {delay}}}"
+            ))
+            .unwrap();
+            assert_eq!(config.keyboard.repeat_rate, rate);
+            assert_eq!(config.keyboard.repeat_delay, delay);
+        }
+    }
+
+    #[test]
+    fn keyboard_repeat_rejects_invalid_values_and_unknown_settings() {
+        for source in [
+            "keyboard: {repeat_rate: -1}",
+            "keyboard: {repeat_delay: -1}",
+            "keyboard: {repeat_rate: 2147483648}",
+            "keyboard: {repeat_delay: 2147483648}",
+            "keyboard: {repeat_rate: 1.5}",
+            "keyboard: {repeat_delay: 1.5}",
+            "keyboard: {repeat_rate: fast}",
+            "keyboard: {repeat_delay: null}",
+            "keyboard: {typo: 1}",
+        ] {
+            assert!(Config::parse(source).is_err(), "accepted {source:?}");
+        }
     }
 
     #[test]

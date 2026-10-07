@@ -5,6 +5,7 @@
 
 mod bindings;
 mod columns;
+mod input;
 mod layout;
 mod output;
 mod overlay;
@@ -27,8 +28,8 @@ use crate::protocol::{
 };
 
 use self::{
-    layout::TileWidth, output::Output, overlay::Overlay, preselection::Preselection, seat::Seat,
-    window::Window, workspaces::DetachedWorkspace,
+    input::InputDevice, layout::TileWidth, output::Output, overlay::Overlay,
+    preselection::Preselection, seat::Seat, window::Window, workspaces::DetachedWorkspace,
 };
 
 #[derive(Debug, Default)]
@@ -40,6 +41,7 @@ pub(crate) struct WindowManager {
     pub(crate) output_names: HashMap<u32, String>,
     active_output: Option<ObjectId>,
     seats: HashMap<ObjectId, Seat>,
+    input_devices: HashMap<ObjectId, InputDevice>,
     next_column: u64,
     preselection: Option<Preselection>,
     overlay: Option<Overlay>,
@@ -60,6 +62,7 @@ impl WindowManager {
         river_xkb: &RiverXkbBindingsV1,
         qh: &QueueHandle<AppData>,
     ) {
+        self.configure_keyboards();
         self.remove_windows();
         self.remove_seats();
         self.manage_outputs();
