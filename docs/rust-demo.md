@@ -118,8 +118,6 @@ documented in River v0.4.8's manual.
 - Title, app ID, parent relationships, dimension hints, decoration hints, and
   fullscreen/maximize/minimize requests are ignored. Choose behavior for each
   and advertise only implemented capabilities.
-- All seats share one global stacking deque; independent seat focus policy needs
-  an explicit design.
 - `remove_windows()` drops closed windows without explicitly destroying their
   window/node objects. Add full cleanup and clear all seat references to removed
   windows, beyond canceling active operations.

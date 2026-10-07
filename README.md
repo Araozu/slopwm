@@ -127,7 +127,8 @@ Actions include `close`, `focus-next`, `focus-previous`, `focus-output-next`,
 `exit` (which exits the entire Wayland session). Column focus moves in physical
 left-to-right order within the active workspace. Monitor focus follows River's
 output positions and remembers each monitor's selected tile, including when an
-empty monitor is selected. All focus navigation stops at the ends; windows,
+empty monitor is selected. All seats share one keyboard focus and active
+monitor by design. All focus navigation stops at the ends; windows,
 stacked rows, monitors, and workspaces never wrap around.
 
 `move-to-output-next` / `move-to-output-previous` move the focused window to the
@@ -180,9 +181,11 @@ clear it. Closing the target tile, moving it to another workspace or monitor,
 removing its workspace or monitor, or locking the session also clears it. Without a
 selection, normal monitor growth direction applies.
 
-Soft fullscreen temporarily hides sibling rows and gives the selected window
-the whole height. Toggling it off restores the stack; focusing a sibling row
-also restores it. Stacking, unstacking, and closing a row change only the
+Soft fullscreen is per column: it temporarily hides sibling rows and gives
+the selected window the whole height. Toggling it off or focusing a sibling
+row in the same column restores that column's stack. Other columns keep their
+own soft-fullscreen state, so several columns can be soft at once.
+Stacking, unstacking, and closing a row change only the
 affected columns' vertical allocations. Other columns retain their widths.
 
 `{change-width-percent: 10}` adds ten percentage points of monitor width;
