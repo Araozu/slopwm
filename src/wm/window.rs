@@ -24,6 +24,8 @@ pub(super) struct Window {
     pub(super) new: bool,
     pub(super) closed: bool,
     pub(super) parent: Option<RiverWindowV1>,
+    pub(super) dialog: bool,
+    pub(super) natural_dimensions: Option<(i32, i32)>,
     pub(super) width: i32,
     pub(super) height: i32,
     pub(super) output: Option<ObjectId>,
@@ -49,6 +51,8 @@ impl Window {
             new: true,
             closed: false,
             parent: None,
+            dialog: false,
+            natural_dimensions: None,
             width: 0,
             height: 0,
             output: None,
@@ -69,7 +73,11 @@ impl Window {
     pub(super) fn initialize(&mut self) {
         self.proxy
             .set_capabilities(Capabilities::Fullscreen | Capabilities::Maximize);
-        self.proxy.set_tiled(Edges::all());
+        self.proxy.set_tiled(if self.dialog {
+            Edges::empty()
+        } else {
+            Edges::all()
+        });
         self.proxy.use_ssd();
         self.node.place_top();
         self.new = false;
@@ -115,6 +123,13 @@ impl Window {
             self.proxy.exit_fullscreen();
             self.proxy.inform_not_fullscreen();
             self.requested_dimensions = None;
+        }
+        if self.dialog && self.natural_dimensions.is_none() {
+            if self.requested_dimensions.is_none() {
+                self.proxy.propose_dimensions(0, 0);
+                self.requested_dimensions = Some((0, 0));
+            }
+            return;
         }
         if let Some(tile) = self.tile {
             let dimensions = tile.content_size();
@@ -191,6 +206,7 @@ impl Dispatch<RiverWindowV1, ()> for AppData {
             Some(window) => window,
             None => return,
         };
+        let previous_natural = window.natural_dimensions;
         match event {
             Event::Closed => window.closed = true,
             Event::DimensionsHint {
@@ -199,7 +215,17 @@ impl Dispatch<RiverWindowV1, ()> for AppData {
                 max_width: _,
                 max_height: _,
             } => {}
-            Event::Dimensions { width, height } => (window.width, window.height) = (width, height),
+            Event::Dimensions { width, height } => {
+                (window.width, window.height) = (width, height);
+                if window.dialog
+                    && (window.natural_dimensions.is_none()
+                        || window.requested_dimensions != Some((width, height)))
+                    && !window.fullscreen
+                    && !window.tile_width.soft_fullscreen
+                {
+                    window.natural_dimensions = Some((width, height));
+                }
+            }
             Event::AppId { app_id: _ } => {}
             Event::Title { title: _ } => {}
             Event::Parent { parent } => window.parent = parent,
@@ -215,6 +241,9 @@ impl Dispatch<RiverWindowV1, ()> for AppData {
             Event::PresentationHint { .. } => {}
             Event::Identifier { .. } => {}
             Event::CaptureSessions { .. } => {}
+        }
+        if window.natural_dimensions != previous_natural {
+            state.request_manage_sequence();
         }
     }
 }

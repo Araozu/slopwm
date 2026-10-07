@@ -74,7 +74,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("{HELP}");
         return Ok(());
     }
-    let config = config::Config::load(options.config.as_deref())?;
+    let source = config::ConfigSource::new(options.config.as_deref());
+    let config = source.load()?;
     if options.check_config {
         println!(
             "Configuration valid ({} keybindings)",
@@ -82,7 +83,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
-    app::run(config)
+    app::run(config, source)
 }
 
 #[cfg(test)]

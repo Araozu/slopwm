@@ -141,9 +141,11 @@ impl WindowManager {
                 .find(|window| &window.proxy == proxy)
                 .unwrap();
             let (column, workspace) = (selected.column, selected.workspace);
+            let root = self.tiled_window(proxy).map(|window| window.proxy.clone());
             self.leave_other_fullscreen(proxy, &output, workspace);
             for window in &mut self.windows {
-                if window.column == column && &window.proxy != proxy {
+                if !window.dialog && window.column == column && Some(&window.proxy) != root.as_ref()
+                {
                     window.tile_width.soft_fullscreen = false;
                 }
             }
@@ -160,8 +162,20 @@ impl WindowManager {
         output: &ObjectId,
         workspace: u64,
     ) {
+        let mut family = vec![focused.clone()];
+        while let Some(parent) = family
+            .last()
+            .and_then(|proxy| self.windows.iter().find(|window| &window.proxy == proxy))
+            .and_then(|window| window.parent.clone())
+        {
+            if family.contains(&parent) {
+                break;
+            }
+            family.push(parent);
+        }
         for window in &mut self.windows {
             if &window.proxy != focused
+                && !family.contains(&window.proxy)
                 && window.output.as_ref() == Some(output)
                 && window.workspace == workspace
             {
@@ -189,10 +203,13 @@ impl WindowManager {
                 let Some(focused_proxy) = focused else {
                     continue;
                 };
+                let focused_proxy = self
+                    .tiled_window(&focused_proxy)
+                    .map(|window| window.proxy.clone());
                 let Some(focused_index) = self
                     .windows
                     .iter()
-                    .position(|window| window.proxy == focused_proxy)
+                    .position(|window| Some(&window.proxy) == focused_proxy.as_ref())
                 else {
                     continue;
                 };
@@ -226,7 +243,10 @@ impl WindowManager {
     fn column_indices(&self, output: &ObjectId, workspace: u64) -> Vec<Vec<usize>> {
         let mut columns: Vec<Vec<usize>> = Vec::new();
         for (index, window) in self.windows.iter().enumerate() {
-            if window.output.as_ref() != Some(output) || window.workspace != workspace {
+            if window.dialog
+                || window.output.as_ref() != Some(output)
+                || window.workspace != workspace
+            {
                 continue;
             }
             if let Some(column) = columns
@@ -244,7 +264,7 @@ impl WindowManager {
     fn focused_column(&self) -> Option<FocusedColumn> {
         let output_id = self.active_output.as_ref()?;
         let workspace = self.outputs[output_id].workspaces.current();
-        let focused = workspace.focused.as_ref()?;
+        let focused = &self.tiled_window(workspace.focused.as_ref()?)?.proxy;
         let columns = self.column_indices(output_id, workspace.id);
         let (column, row) = columns.iter().enumerate().find_map(|(column, rows)| {
             rows.iter()
@@ -407,14 +427,14 @@ impl WindowManager {
     }
 
     pub(super) fn change_width(&mut self, focused: &RiverWindowV1, delta: i16) {
-        let Some(window) = self.windows.iter().find(|window| &window.proxy == focused) else {
+        let Some(window) = self.tiled_window(focused) else {
             return;
         };
         let column = window.column;
         let mut width = window.tile_width;
         width.change(delta);
         for window in &mut self.windows {
-            if window.column == column {
+            if !window.dialog && window.column == column {
                 window.tile_width = width;
                 window.fullscreen = false;
             }
@@ -439,11 +459,14 @@ impl WindowManager {
     }
 
     pub(super) fn layout_windows(&mut self) {
+        for window in &mut self.windows {
+            window.tile = None;
+        }
         let output_ids: Vec<_> = self.outputs.keys().cloned().collect();
         for id in output_ids {
             let (geometry, border_width) = {
                 let output = &self.outputs[&id];
-                (output.geometry, self.config.border.width)
+                (output.work_area(), self.config.border.width)
             };
             if geometry.width <= 0 || geometry.height <= 0 {
                 continue;
@@ -475,7 +498,14 @@ impl WindowManager {
                         .iter()
                         .find(|workspace| workspace.id == workspace_id)
                         .unwrap();
-                    (workspace.focused.clone(), workspace.scroll)
+                    (
+                        workspace
+                            .focused
+                            .as_ref()
+                            .and_then(|proxy| self.tiled_window(proxy))
+                            .map(|window| window.proxy.clone()),
+                        workspace.scroll,
+                    )
                 };
                 let focused = columns
                     .iter()
@@ -535,7 +565,9 @@ impl WindowManager {
             .workspaces
             .current()
             .focused
-            .clone();
+            .as_ref()
+            .and_then(|proxy| self.tiled_window(proxy))
+            .map(|window| window.proxy.clone());
         let focused = columns
             .iter()
             .position(|rows| {

@@ -38,5 +38,7 @@ pub(crate) enum Action {
     ChangeWidthPercent(i16),
     Preselect(SpawnDirection),
     CancelPreselection,
+    ReloadConfig,
+    Quit,
     Exit,
 }

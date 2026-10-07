@@ -5,6 +5,7 @@
 
 mod bindings;
 mod columns;
+mod dialogs;
 mod input;
 mod layer;
 mod layout;
@@ -47,6 +48,9 @@ pub(crate) struct WindowManager {
     preselection: Option<Preselection>,
     overlay: Option<Overlay>,
     session_locked: bool,
+    pub(crate) pending_config: Option<Config>,
+    pub(crate) reload_requested: bool,
+    pub(crate) quitting: bool,
 }
 
 impl WindowManager {
@@ -64,14 +68,15 @@ impl WindowManager {
         layer_shell: Option<&RiverLayerShellV1>,
         qh: &QueueHandle<AppData>,
     ) {
+        self.apply_pending_config();
         self.configure_keyboards();
         self.remove_windows();
         self.remove_seats();
         self.manage_outputs();
-        self.manage_layer_shell(layer_shell, qh);
         self.reconcile_workspaces();
         self.reconcile_preselection();
         self.init_new_windows();
+        self.reconcile_dialogs();
         self.reconcile_workspaces();
         for window in &mut self.windows {
             window.apply_requests();
@@ -82,10 +87,12 @@ impl WindowManager {
         // Seats are temporarily separated so actions can update manager policy.
         let mut seats = std::mem::take(&mut self.seats);
         for seat in seats.values_mut() {
-            seat.init_bindings(river_xkb, qh, &self.config.keybindings);
+            seat.init_bindings(river_xkb, qh, &self.config.keybindings, self.session_locked);
             if let Some(window) = seat.interacted.take() {
                 // Locked sessions ignore click-to-focus alongside bindings.
                 if !self.session_locked {
+                    seat.layer_non_exclusive = false;
+                    seat.focus_dirty = true;
                     self.select_window(&window);
                 }
             }
@@ -93,8 +100,12 @@ impl WindowManager {
             seat.do_actions(self, proxy);
         }
         self.seats = seats;
+        self.manage_layer_shell(layer_shell, qh);
+        self.reconcile_dialogs();
+        self.reconcile_workspaces();
         self.reconcile_preselection();
         self.layout_windows();
+        self.layout_dialogs();
         for window in &mut self.windows {
             if let Some(output) = window.output.as_ref().and_then(|id| self.outputs.get(id)) {
                 window.manage(output);
@@ -110,11 +121,20 @@ impl WindowManager {
         shm: &wayland_client::protocol::wl_shm::WlShm,
         qh: &QueueHandle<AppData>,
     ) {
+        // Dialog dimensions may change in a render-only sequence.
+        self.layout_dialogs();
         let focused = self
             .active_output
             .as_ref()
             .and_then(|id| self.outputs.get(id))
-            .and_then(|output| output.workspaces.current().focused.clone());
+            .and_then(|output| output.workspaces.current().focused.clone())
+            .filter(|_| {
+                !self.session_locked
+                    && !self
+                        .seats
+                        .values()
+                        .any(|seat| seat.layer_exclusive || seat.layer_non_exclusive)
+            });
         let (focused_color, unfocused_color) =
             (self.config.border.color, self.config.border.unfocused_color);
         for window in &mut self.windows {
@@ -123,7 +143,13 @@ impl WindowManager {
                 .as_ref()
                 .and_then(|id| self.outputs.get(id))
                 .filter(|output| output.workspaces.current().id == window.workspace)
-                .map(|output| output.geometry);
+                .map(|output| {
+                    if window.fullscreen {
+                        output.geometry
+                    } else {
+                        output.work_area()
+                    }
+                });
             let color = if Some(&window.proxy) == focused.as_ref() {
                 focused_color
             } else {
@@ -131,6 +157,7 @@ impl WindowManager {
             };
             window.render(output, color);
         }
+        self.raise_dialogs();
         let preview = self.preselection_preview();
         if preview.is_some() && self.overlay.is_none() {
             self.overlay = Some(Overlay::new(proxy, compositor, qh));
@@ -242,6 +269,7 @@ impl WindowManager {
     }
 
     fn remove_windows(&mut self) {
+        self.reconcile_closed_parents();
         let old = std::mem::take(&mut self.windows);
         for window in old {
             if window.closed {
@@ -253,6 +281,10 @@ impl WindowManager {
                 for seat in self.seats.values_mut() {
                     if seat.interacted.as_ref() == Some(&window.proxy) {
                         seat.interacted = None;
+                    }
+                    if seat.focused.as_ref() == Some(&window.proxy) {
+                        seat.focused = None;
+                        seat.focus_dirty = true;
                     }
                 }
                 window.node.destroy();
@@ -280,6 +312,9 @@ impl WindowManager {
 
     fn set_session_locked(&mut self, locked: bool) {
         self.session_locked = locked;
+        for seat in self.seats.values_mut() {
+            seat.focus_dirty = true;
+        }
         if locked {
             self.preselection = None;
             for seat in self.seats.values_mut() {
@@ -293,11 +328,20 @@ impl WindowManager {
         if self.active_output.is_none() {
             return;
         }
-        let (new, existing): (VecDeque<_>, VecDeque<_>) = std::mem::take(&mut self.windows)
-            .into_iter()
-            .partition(|window| window.new);
-        self.windows = existing;
-        for mut window in new {
+        while let Some(index) = self.windows.iter().position(|window| {
+            window.new
+                && window.parent.as_ref().is_none_or(|parent| {
+                    !self
+                        .windows
+                        .iter()
+                        .any(|candidate| &candidate.proxy == parent && candidate.new)
+                })
+        }) {
+            let mut window = self.windows.remove(index).unwrap();
+            if self.insert_new_dialog(&mut window) {
+                self.windows.push_back(window);
+                continue;
+            }
             window.initialize();
             window.tile_width = TileWidth::new(self.config.scrolling.default_width_percent);
             window.column = self.allocate_column();
@@ -313,6 +357,54 @@ impl WindowManager {
             }
         }
     }
+
+    fn apply_pending_config(&mut self) {
+        let Some(config) = self.pending_config.take() else {
+            return;
+        };
+        if config.keybindings != self.config.keybindings {
+            for seat in self.seats.values_mut() {
+                seat.destroy_bindings();
+                seat.pending_actions.clear();
+                seat.new = true;
+            }
+        }
+        if config.keyboard != self.config.keyboard {
+            self.reload_keyboard_settings();
+        }
+        self.config = config;
+        eprintln!(
+            "slopwm: configuration reloaded ({} keybindings)",
+            self.config.keybindings.len()
+        );
+    }
+
+    /// Only called once the manager has finished (or is unavailable).
+    pub(crate) fn destroy(&mut self) {
+        if let Some(overlay) = self.overlay.take() {
+            overlay.destroy();
+        }
+        for window in self.windows.drain(..) {
+            window.node.destroy();
+            window.proxy.destroy();
+        }
+        for (_, mut seat) in self.seats.drain() {
+            seat.destroy_bindings();
+            if let Some(layer) = seat.layer_seat.take() {
+                layer.destroy();
+            }
+            seat.proxy.destroy();
+        }
+        for (_, mut output) in self.outputs.drain() {
+            if let Some(layer) = output.layer_output.take() {
+                layer.destroy();
+            }
+            output.proxy.destroy();
+        }
+        self.preselection = None;
+        self.active_output = None;
+        self.detached_workspaces.clear();
+    }
 }
 
 impl Dispatch<RiverWindowManagerV1, ()> for AppData {
@@ -326,18 +418,10 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
     ) {
         use crate::protocol::river_window_manager_v1::Event;
         match event {
-            Event::Unavailable => {
-                eprintln!(
-                    "Error: River window management is unavailable (another WM may be running)"
-                );
-                std::process::exit(1);
-            }
-            Event::Finished => {
-                if let Some(overlay) = state.wm.overlay.take() {
-                    overlay.destroy();
-                }
-                std::process::exit(0);
-            }
+            Event::Unavailable => state.manager_finished(true),
+            Event::Finished => state.manager_finished(false),
+            Event::ManageStart if state.wm.quitting => proxy.manage_finish(),
+            Event::RenderStart if state.wm.quitting => proxy.render_finish(),
             Event::ManageStart => {
                 let xkb = state
                     .river_xkb

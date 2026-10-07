@@ -41,7 +41,13 @@ impl WindowManager {
         let selection = Preselection {
             output: output.clone(),
             workspace: self.outputs[output].workspaces.current().id,
-            window: self.outputs[output].workspaces.current().focused.clone(),
+            window: self.outputs[output]
+                .workspaces
+                .current()
+                .focused
+                .as_ref()
+                .and_then(|proxy| self.tiled_window(proxy))
+                .map(|window| window.proxy.clone()),
             direction,
         };
         self.preselection = (self.preselection.as_ref() != Some(&selection)).then_some(selection);
@@ -73,10 +79,11 @@ impl WindowManager {
         if selected_output.workspaces.current().id != selection.workspace {
             return None;
         }
-        let output = selected_output.geometry;
+        let mut output = selected_output.work_area();
         let tile = if let Some(anchor) = &selection.window {
             let window = self.windows.iter().find(|window| &window.proxy == anchor)?;
             if window.fullscreen {
+                output = selected_output.geometry;
                 TileGeometry {
                     x: output.x,
                     y: output.y,

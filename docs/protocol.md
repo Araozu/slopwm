@@ -48,6 +48,13 @@ and call `manage_dirty()` to request a manage sequence. That request is a wakeup
 not permission to send policy changes immediately. Avoid repeated wakeups when
 there is no work.
 
+`reload-config` and SIGHUP validate the original config source in the event loop,
+then stage a complete replacement and call `manage_dirty()`. Bindings are replaced
+and keyboard settings refreshed at `manage_start`; render consumes the updated
+borders. Failed parsing/I/O never stages a replacement. A nonblocking signal
+self-pipe participates in the same poll loop as the Wayland socket, so idle
+sessions can reload or shut down without periodic wakeups or extra roundtrips.
+
 ## Objects and geometry
 
 | Object | Purpose |
@@ -120,9 +127,11 @@ Keyboard repeat is configured through `river_input_manager_v1`, independently
 of XKB bindings. Device creation and type events accumulate local state;
 keyboard types request a manage sequence with `manage_dirty()`. At `manage_start`,
 slopwm sends `set_repeat_info(rate, delay)` once per new keyboard, using the same
-global configuration on every seat. Devices connected later follow the same
-path. Non-keyboard devices receive no repeat requests. Removal discards any
-pending configuration and explicitly destroys the device proxy.
+global configuration on every seat. A successful reload with changed repeat
+settings also marks existing keyboards for configuration. Devices connected
+later follow the same path. Non-keyboard devices receive no repeat requests.
+Removal discards any pending configuration and explicitly destroys the device
+proxy.
 
 Input-device events do not follow the window-management sequence boundaries;
 the explicit wakeup ensures a new keyboard is configured even while idle.
@@ -143,11 +152,20 @@ active monitor (falling back to the first ordered output) with `set_default()`
 for layer surfaces that request no explicit output. Removed outputs and seats
 destroy their layer objects alongside the River objects.
 
-`non_exclusive_area` events are only observed: tiles keep using the full
-output geometry, as the protocol allows, so panels with exclusive zones are
-overlapped rather than avoided. `focus_exclusive` suppresses window-manager
-focus requests until `focus_non_exclusive` or `focus_none` releases
-exclusivity; those requests would be ignored by the compositor anyway. The
+`non_exclusive_area` is stored separately from physical output geometry.
+The work area intersects its vertical extent with the monitor; horizontal
+geometry stays physical to preserve the 98% scrolling area and 1% peeks.
+Normal tiles, stacks, dialogs, soft fullscreen, and previews use the work area;
+true fullscreen uses River's complete output. Fully reserved vertical space
+hides ordinary tiles until space returns.
+
+`focus_exclusive` suppresses window-manager focus requests until exclusivity
+ends. `focus_non_exclusive` lets a launcher keep focus until explicit navigation,
+a click, or a new selected window changes the selected tile. These events
+invalidate the cached seat focus so `focus_none` restores the selected window
+even when its identity has not changed. Layer focus and session locking suppress
+focused border colors. Keyboard bindings are disabled during locked manage
+sequences and re-enabled after unlocking; pending presses are also discarded. The
 layer-shell global is optional, so older compositors without it still run the
 manager, just without mappable layer surfaces.
 
@@ -162,6 +180,18 @@ For interactive movement or resizing:
    with `inform_resize_start()` / `inform_resize_end()`.
 5. Cancel an operation whose window closes or whose seat disappears, respecting
    the remaining objects' lifetimes.
+
+## Transient windows
+
+Transient windows retain their parent metadata separately from their allocation.
+They are excluded from tiled column rows and follow their root parent's output,
+workspace, and column. An initial `propose_dimensions(0, 0)` lets the application
+choose its natural size. Confirmed dimensions update that preference separately
+from subsequent constrained proposals. Render-only dimension changes recenter
+dialogs without sending management requests from render. Parent-before-child
+layout and node ordering also handle nested dialogs and parents arriving later
+in the same event batch. Closed parents are resolved before destroying proxies;
+focus returns to a live ancestor and surviving orphans become tiles.
 
 ## Fullscreen and capabilities
 
@@ -193,8 +223,12 @@ objects when their lifetimes permit. Output and seat `removed` events likewise
 require cleanup. Dropping a Rust proxy is not a substitute for sending a
 protocol destructor.
 
-To stop gracefully: send manager `stop()`, continue dispatching until `finished`,
-then destroy the manager and its dependent objects. `exit_session()` is a
+To stop gracefully, `quit`, SIGTERM, and SIGINT send `stop()` to both the window
+and input managers. Continue completing any in-flight manage/render sequences
+until `finished`, then destroy each manager's dependent objects and the manager
+itself. The two acknowledgements may arrive in either order. Flush destructors
+before leaving the event loop. `unavailable` follows the same cleanup path with
+an error result; startup failures stop globals already bound. `exit_session()` is a
 different action that disconnects the entire session; reserve it for an explicit
 user command. Track session lock events when deciding which bindings stay active.
 

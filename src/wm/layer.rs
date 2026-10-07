@@ -8,8 +8,8 @@
 //! surfaces immediately, so tools like `awww` end up with no outputs and
 //! report that none of the requested outputs are valid.
 //!
-//! Exclusive zones from panels are currently only observed, not applied to
-//! tile layout: tiles keep covering the full output geometry. A layer surface
+//! Top/bottom exclusive zones reserve vertical space while preserving the
+//! monitor's full horizontal scrolling area. A layer surface
 //! with exclusive keyboard focus (for example a launcher) suppresses
 //! window-manager focus requests until River releases exclusivity.
 
@@ -87,18 +87,31 @@ impl WindowManager {
 
 impl Dispatch<RiverLayerShellOutputV1, ObjectId> for AppData {
     fn event(
-        _state: &mut Self,
+        state: &mut Self,
         _proxy: &RiverLayerShellOutputV1,
         event: <RiverLayerShellOutputV1 as Proxy>::Event,
-        _data: &ObjectId,
+        data: &ObjectId,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
         use crate::protocol::river_layer_shell_output_v1::Event;
+        let Some(output) = state.wm.outputs.get_mut(data) else {
+            return;
+        };
         match event {
-            // Exclusive zones are only a hint and tiles intentionally keep
-            // using the full output geometry, so there is nothing to update.
-            Event::NonExclusiveArea { .. } => {}
+            Event::NonExclusiveArea {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                output.non_exclusive_area = Some(super::output::OutputGeometry {
+                    x,
+                    y,
+                    width,
+                    height,
+                });
+            }
         }
     }
 }
@@ -117,8 +130,19 @@ impl Dispatch<RiverLayerShellSeatV1, ObjectId> for AppData {
             return;
         };
         match event {
-            Event::FocusExclusive => seat.layer_exclusive = true,
-            Event::FocusNonExclusive | Event::FocusNone => seat.layer_exclusive = false,
+            Event::FocusExclusive => {
+                seat.layer_exclusive = true;
+                seat.layer_non_exclusive = false;
+            }
+            Event::FocusNonExclusive => {
+                seat.layer_exclusive = false;
+                seat.layer_non_exclusive = true;
+            }
+            Event::FocusNone => {
+                seat.layer_exclusive = false;
+                seat.layer_non_exclusive = false;
+            }
         }
+        seat.focus_dirty = true;
     }
 }

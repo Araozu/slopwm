@@ -10,12 +10,14 @@ and per-monitor growth directions.
 | Path | Responsibility |
 | --- | --- |
 | `src/main.rs` | Application entry point |
-| `src/config.rs` | YAML loading, XDG paths, key names, actions, and validation |
+| `src/config.rs` | YAML loading/reloading from a stable source, XDG paths, key names, actions, and validation |
 | `src/action.rs` | Actions shared by configuration and input dispatch |
-| `src/app.rs` | Connection, registry negotiation, startup checks, and event loop |
+| `src/app.rs` | Connection, registry negotiation, startup checks, poll loop, reload staging, and graceful shutdown |
+| `src/app/signals.rs` | Signal flags and a nonblocking self-pipe for idle reload/shutdown |
 | `src/protocol.rs` | Generated River bindings and interface imports |
 | `src/wm/mod.rs` | Manager state, object creation/cleanup, and manage/render sequence orchestration |
 | `src/wm/window.rs` | Window state, geometry, and window-event dispatch |
+| `src/wm/dialogs.rs` | Parent-aware floating placement, family membership, stacking, and parent-close recovery |
 | `src/wm/output.rs` | Output state and output-event dispatch |
 | `src/wm/seat.rs` | Seat state, focus policy, action execution, and seat-event dispatch |
 | `src/wm/bindings.rs` | Configured keyboard bindings, binding lifecycle, and event dispatch |
@@ -59,15 +61,17 @@ manage/render rules.
    bindings negotiate management 4–5 and XKB 1–3 using released, documented XML.
 2. **Harden the manager.** Keyboard bindings and terminal/command
    spawning are now configurable with YAML; `--check-config` validates offline.
-   Closed window/node and removed output/seat objects are destroyed. Add graceful
-   manager shutdown and tolerant handling of remaining obsolete-object lookups.
+   Closed window/node and removed output/seat objects are destroyed. Graceful
+   shutdown stops both managers, finishes pending sequences, and destroys objects
+   after their acknowledgements. Obsolete binding/output events are tolerated.
    See the [reference gaps](rust-demo.md#gaps-to-address-in-slopwm).
 3. **Track real output and application state.** Output rectangles, stable active
    monitor placement, monitor-switching bindings, and recovery after output
    removal are present. Fullscreen/maximize capabilities match implemented
    behavior. Application dimensions are confirmed separately and clipped to
-   allocations. Parent metadata prevents dialogs from consuming a pending spawn
-   selection; general dialog placement remains future work.
+   allocations. Parent-aware dialogs float above their parent, follow its monitor
+   and workspace, preserve pending spawn selections, and restore focus when
+   closed. Nested dialogs and orphaned children are reconciled explicitly.
 4. **Scrolling layout.** Stable-width columns grow left by default, with
    per-monitor overrides. Stack/unstack actions support vertical rows. Each
    workspace keeps its own scroll offset within a 98% logical area (1% peek
@@ -75,7 +79,7 @@ manage/render rules.
    focused tile fits and otherwise moves only as far as needed. `center-window`
    centers the focused column, `align-window-right` puts its right edge at 99%,
    and `move-next`/`move-previous` reorder whole columns. Soft fullscreen
-   occupies 98% width and full height, while true fullscreen delegates to
+   occupies 98% width and available height, while true fullscreen delegates to
    River. Borders use `border.color` for the focused tile and
    `border.unfocused_color` otherwise (both with alpha). Keyboard
    `repeat_rate`/`repeat_delay` apply globally, including hotplug. Each monitor
@@ -85,17 +89,25 @@ manage/render rules.
    workspace groups (including scroll) on a surviving output.
    Direction preselection inserts the next regular window
    beside a column or row, with a manager-owned shell surface marking the side.
-5. **Make daily operation predictable.** Add useful diagnostics, configuration
-   reload through `manage_dirty()`, lock-aware bindings, and any needed timer/IPC
-   integration. Gate optional protocol extensions by negotiated versions.
+5. **Make daily operation predictable.** Configuration reload validates first,
+   retains the last valid settings on failure, and applies replacements through
+   `manage_dirty()`. Existing/hotplug keyboards receive current repeat settings.
+   Bindings are disabled while locked, and layer-shell focus returns to the
+   selected window. Timer/IPC integration and richer diagnostics remain future
+   work. Gate optional protocol extensions by negotiated versions.
 
-Bars, launchers, custom titlebars, and animation can follow a working manager.
+Layer-shell wallpapers, bars, and launchers can map their surfaces. Top/bottom
+reservations reduce available height while preserving physical horizontal peek
+margins; true fullscreen still covers the complete output. Custom titlebars and
+animation remain future work.
 Use compositor-drawn borders first if decoration is needed; custom decoration
 surfaces introduce buffer creation and commit synchronization work.
 
 ## Validation
 
 Run `cargo fmt --check`, `cargo check`, and `cargo test` for implementation changes.
+See [testing](testing.md) for offline commands, protocol coverage, and the
+controlled River checklist.
 Configuration tests cover replacement/default behavior, command arguments, XKB
 names/modifiers, invalid or conflicting bindings, and config-path fallback. For pure
 layout code, test invariants that can actually fail: positive content sizes,
@@ -183,3 +195,14 @@ on spawning, and cancel when the anchor moves or the workspace disappears.
 All 452 manage and 452 render sequences finished in order; preview commits were
 synchronized without protocol errors. Physical monitors and older negotiated
 protocol versions were not exercised.
+
+Daily-operation validation on 2026-10-07 passed formatting, compilation,
+38 unit tests, nine protocol scenarios through the Cargo integration test, and
+offline validation of all 33 example bindings. The isolated protocol peer runs
+the actual slopwm binary and checks sequence completion, reload failure recovery,
+current/hotplug keyboard settings, layer focus and locking, panel reservations,
+parent/nested dialogs and render-only resizing, workspace/output moves, object
+cleanup, both shutdown acknowledgement orders, missing globals, and negotiated
+versions. This environment is headless; no controlled River session or physical
+input/output checks were run for these changes. Wallpaper rendering, application
+responses, and real launcher/lock behavior remain pending in the live checklist.

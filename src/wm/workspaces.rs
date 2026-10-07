@@ -173,10 +173,17 @@ impl WindowManager {
         let Some(target) = output.workspaces.adjacent(up) else {
             return;
         };
+        let focused = output
+            .workspaces
+            .current()
+            .focused
+            .as_ref()
+            .and_then(|proxy| self.tiled_window(proxy))
+            .map(|window| window.proxy.clone());
         let Some(index) = self
             .windows
             .iter()
-            .position(|window| Some(&window.proxy) == output.workspaces.current().focused.as_ref())
+            .position(|window| Some(&window.proxy) == focused.as_ref())
         else {
             return;
         };

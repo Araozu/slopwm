@@ -21,11 +21,12 @@ keeps scrolled-away neighbors visible. Within that area slopwm behaves like a
 regular scrolling WM: if the focused tile already fits without moving, the
 strip stays where it is; otherwise it moves only as far as needed to bring the
 focused tile fully into view. A lone window starts at the 1% left inset.
-Tiles fill the monitor height, including their borders. Soft fullscreen uses
-98% of the monitor width and restores the previous width and vertical stack
-when toggled off. `center-window` centers the focused column, and
-`align-window-right` puts its right edge at the 99% mark. True fullscreen
-delegates geometry to River and covers the whole monitor; leaving it restores
+Tiles fill the available monitor height, including their borders, avoiding
+top/bottom panels that reserve space. Soft fullscreen uses
+98% of the monitor width and the available height, and restores the previous
+width and vertical stack when toggled off. `center-window` centers the focused
+column, and `align-window-right` puts its right edge at the 99% mark. True
+fullscreen delegates geometry to River and covers the whole monitor; leaving it restores
 the tile. Selecting another tile in the same workspace also leaves true
 fullscreen.
 
@@ -74,10 +75,35 @@ awww img -o DP-1 ~/Pictures/wallpaper.jpeg
 ```
 
 If `DP-1` is rejected, `awww query` (or `wlr-randr`) shows the valid names;
-nested or headless sessions often use names like `WL-1` instead. Tiles cover
-the full output, so the wallpaper is visible in the tile margins and peeks,
-or fully on an empty workspace. Panels that reserve exclusive zones are
-currently overlapped by tiles rather than avoided.
+nested or headless sessions often use names like `WL-1` instead. The wallpaper
+is visible in the tile margins and peeks,
+or fully on an empty workspace. Top/bottom panels that reserve exclusive zones
+reduce the vertical tiling area, including stacks, soft fullscreen, and spawn
+previews. Removing a panel restores the height. Horizontal column widths and
+the 1% peek margins always use the full monitor width; side-panel exclusive
+zones are ignored. True fullscreen covers the entire monitor, including panels.
+
+Layer-shell launchers can request exclusive or non-exclusive keyboard focus.
+Exclusive focus lasts until the launcher releases it. Non-exclusive focus is
+kept until explicit window/monitor/workspace navigation, a window click, or a
+new selected window changes focus. Closing the launcher restores the selected
+window. Pointer motion never changes focus.
+
+## Dialogs
+
+Transient windows with a live parent open above its tile, centered and clipped
+to the available area. The application chooses its initial content size;
+oversized dialogs are constrained without resizing or reordering the parent's
+column. Nested dialogs follow the same rule. A dialog receives focus on opening
+when its parent's family is selected on the active workspace and monitor;
+background dialogs do not switch workspaces or monitors or steal focus.
+
+Dialogs follow their parent when its row/column moves, stacks, changes workspace
+or monitor, or migrates after output removal. Column navigation, width changes,
+and move/stack actions while a dialog is selected act on its parent tile. Close
+and fullscreen actions act on the selected dialog. Dialogs do not consume spawn
+preselection. Closing the focused dialog restores focus to its surviving parent;
+a dialog whose parent disappears becomes an ordinary tile.
 
 ## Configuration
 
@@ -131,6 +157,7 @@ keybindings:
   "Super+Ctrl+Up": preselect-up
   "Super+Ctrl+Down": preselect-down
   "Super+Ctrl+Escape": preselect-cancel
+  "Super+Shift+r": reload-config
   "Super+Shift+Escape": exit
 ```
 
@@ -226,7 +253,7 @@ removing its workspace or monitor, or locking the session also clears it. Withou
 selection, normal monitor growth direction applies.
 
 Soft fullscreen is per column: it temporarily hides sibling rows and gives
-the selected window the whole height. Toggling it off or focusing a sibling
+the selected window the available height. Toggling it off or focusing a sibling
 row in the same column restores that column's stack. Other columns keep their
 own soft-fullscreen state, so several columns can be soft at once.
 Stacking, unstacking, and closing a row change only the
@@ -263,8 +290,24 @@ cargo run -- --config config.example.yaml --check-config
 Use `--check-config` on its own to validate the default config path. Invalid YAML,
 unknown settings/actions/keys/modifiers, duplicate shortcuts, invalid repeat or geometry
 settings, and empty spawn commands produce startup errors. A file explicitly
-selected with `--config` must exist. Configuration is loaded at startup;
-restart slopwm to apply changes.
+selected with `--config` must exist.
+
+Configuration is loaded at startup. Press **Super + Shift + r**, use a
+`reload-config` binding, or send **SIGHUP** to reload the same configuration file.
+The entire file is validated before any changes are applied. Invalid or missing
+files leave the last working configuration and bindings in place and print an
+error to stderr. Successful reloads update bindings on every seat, borders,
+keyboard repeat on current and future keyboards, and settings for future window
+insertion. Existing widths, stacks, workspace selections, and scroll offsets
+are preserved; normal minimal scrolling still applies if geometry requires it.
+If your replacement binding map omits `reload-config`, SIGHUP remains available.
+
+The `quit` action, **SIGTERM**, and **SIGINT** stop only slopwm, completing
+in-flight protocol sequences and waiting for River's shutdown acknowledgements
+before destroying objects. River and applications remain alive so another
+window manager can attach. `quit` has no default shortcut; for example bind
+`"Super+Ctrl+Shift+Escape": quit`. The existing `exit` action still exits the
+entire Wayland session.
 
 For a custom file, pass the command and its arguments together to River:
 
@@ -295,6 +338,7 @@ river -c './target/release/slopwm --config /absolute/path/config.yml'
 | Super + = / Super + - | Add / subtract 10 percentage points of width |
 | Super + Ctrl + Left / Right / Up / Down | Preselect the next window's insertion direction |
 | Super + Ctrl + Escape | Cancel spawn preselection |
+| Super + Shift + r | Reload configuration; keep current settings if validation fails |
 | Super + Shift + Escape | Exit the entire Wayland session |
 | Click a window | Focus and raise it |
 

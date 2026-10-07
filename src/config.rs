@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 
-//! Startup configuration, parsed and validated before connecting to Wayland.
+//! Configuration sources, YAML parsing, and validation.
 
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
@@ -27,6 +27,41 @@ pub(crate) struct Config {
     pub(crate) border: BorderConfig,
     pub(crate) scrolling: ScrollingConfig,
     pub(crate) monitors: BTreeMap<String, MonitorConfig>,
+}
+
+/// Resolve the source once so reloads use the same file as startup.
+#[derive(Debug, Default)]
+pub(crate) struct ConfigSource {
+    path: Option<PathBuf>,
+    required: bool,
+}
+
+impl ConfigSource {
+    pub(crate) fn new(explicit_path: Option<&Path>) -> Self {
+        Self {
+            path: explicit_path.map(Path::to_path_buf).or_else(|| {
+                default_path(
+                    std::env::var_os("XDG_CONFIG_HOME"),
+                    std::env::var_os("HOME"),
+                )
+            }),
+            required: explicit_path.is_some(),
+        }
+    }
+
+    pub(crate) fn load(&self) -> Result<Config, ConfigError> {
+        match &self.path {
+            Some(path) => Config::load_path(path, self.required),
+            None => Ok(Config::default()),
+        }
+    }
+
+    pub(crate) fn reload(&self) -> Result<Config, ConfigError> {
+        match &self.path {
+            Some(path) => Config::load_path(path, true),
+            None => Ok(Config::default()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -164,6 +199,7 @@ impl Default for Config {
             ("Super+Ctrl+Up", Action::Preselect(SpawnDirection::Up)),
             ("Super+Ctrl+Down", Action::Preselect(SpawnDirection::Down)),
             ("Super+Ctrl+Escape", Action::CancelPreselection),
+            ("Super+Shift+r", Action::ReloadConfig),
             ("Super+Shift+Escape", Action::Exit),
         ]
         .into_iter()
@@ -233,19 +269,6 @@ struct WidthChange {
 }
 
 impl Config {
-    pub(crate) fn load(explicit_path: Option<&Path>) -> Result<Self, ConfigError> {
-        match explicit_path {
-            Some(path) => Self::load_path(path, true),
-            None => match default_path(
-                std::env::var_os("XDG_CONFIG_HOME"),
-                std::env::var_os("HOME"),
-            ) {
-                Some(path) => Self::load_path(&path, false),
-                None => Ok(Self::default()),
-            },
-        }
-    }
-
     fn load_path(path: &Path, required: bool) -> Result<Self, ConfigError> {
         match std::fs::read_to_string(path) {
             Ok(source) => Self::parse(&source)
@@ -430,6 +453,8 @@ fn parse_action(action: BindingAction) -> Result<Action, String> {
             "preselect-up" => Ok(Action::Preselect(SpawnDirection::Up)),
             "preselect-down" => Ok(Action::Preselect(SpawnDirection::Down)),
             "preselect-cancel" => Ok(Action::CancelPreselection),
+            "reload-config" => Ok(Action::ReloadConfig),
+            "quit" => Ok(Action::Quit),
             "exit" => Ok(Action::Exit),
             _ => Err(format!(
                 "unknown action {name:?}; see README.md for supported actions"

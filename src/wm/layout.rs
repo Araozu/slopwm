@@ -102,6 +102,63 @@ fn coordinate(value: i64) -> i32 {
     value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
 }
 
+/// Panels reserve vertical space only. Horizontal widths and peeks always use
+/// the physical monitor width, including when a side panel reserves a zone.
+pub(super) fn work_area(
+    output: OutputGeometry,
+    reserved: Option<OutputGeometry>,
+) -> OutputGeometry {
+    let Some(area) = reserved else {
+        return output;
+    };
+    let top = i64::from(area.y).clamp(
+        i64::from(output.y),
+        i64::from(output.y) + i64::from(output.height.max(0)),
+    );
+    let bottom = (i64::from(area.y) + i64::from(area.height.max(0)))
+        .clamp(top, i64::from(output.y) + i64::from(output.height.max(0)));
+    OutputGeometry {
+        y: coordinate(top),
+        height: (bottom - top) as i32,
+        ..output
+    }
+}
+
+pub(super) fn dialog_tile(
+    parent: TileGeometry,
+    area: OutputGeometry,
+    content: (i32, i32),
+    border: i32,
+    maximized: bool,
+) -> Option<TileGeometry> {
+    if area.width <= 0 || area.height <= 0 || parent.intersection(area).is_none() {
+        return None;
+    }
+    let inset = inset_for(area.width);
+    let available_width = (i64::from(area.width) - 2 * inset).max(1);
+    let (width, height) = if maximized {
+        (available_width, i64::from(area.height))
+    } else {
+        (
+            (i64::from(content.0.max(1)) + 2 * i64::from(border)).clamp(1, available_width),
+            (i64::from(content.1.max(1)) + 2 * i64::from(border)).clamp(1, i64::from(area.height)),
+        )
+    };
+    let left = i64::from(area.x) + inset;
+    let top = i64::from(area.y);
+    let x = (i64::from(parent.x) + (i64::from(parent.width) - width) / 2)
+        .clamp(left, left + available_width - width);
+    let y = (i64::from(parent.y) + (i64::from(parent.height) - height) / 2)
+        .clamp(top, top + i64::from(area.height) - height);
+    Some(TileGeometry {
+        x: coordinate(x),
+        y: coordinate(y),
+        width: width as i32,
+        height: height as i32,
+        border: border.max(0).min(((width.min(height) - 1) / 2) as i32),
+    })
+}
+
 pub(super) fn inset_for(output_width: i32) -> i64 {
     i64::from(output_width) / 100
 }
@@ -202,6 +259,101 @@ pub(super) fn scrolling_tiles(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panel_reservations_only_change_vertical_geometry() {
+        let output = OutputGeometry {
+            x: -1000,
+            y: -200,
+            width: 1000,
+            height: 800,
+        };
+        let area = work_area(
+            output,
+            Some(OutputGeometry {
+                x: -900,
+                y: -160,
+                width: 900,
+                height: 720,
+            }),
+        );
+        assert_eq!(
+            area,
+            OutputGeometry {
+                y: -160,
+                height: 720,
+                ..output
+            }
+        );
+        let (tiles, scroll) = scrolling_tiles(area, &[50, 50], 0, 2, 10);
+        assert_eq!(scroll, 10);
+        assert_eq!(
+            (tiles[0].x, tiles[0].width, tiles[0].y, tiles[0].height),
+            (-990, 500, -160, 720)
+        );
+        assert_eq!(work_area(output, None), output);
+        for reserved in [
+            OutputGeometry {
+                y: -999,
+                height: 9999,
+                ..output
+            },
+            OutputGeometry {
+                y: 5000,
+                height: 1,
+                ..output
+            },
+            OutputGeometry {
+                height: -1,
+                ..output
+            },
+        ] {
+            let area = work_area(output, Some(reserved));
+            assert_eq!((area.x, area.width), (output.x, output.width));
+            assert!(area.y >= output.y && area.y + area.height <= output.y + output.height);
+            assert!(area.height >= 0);
+        }
+    }
+
+    #[test]
+    fn dialogs_center_and_clip_without_changing_parent_geometry() {
+        let area = OutputGeometry {
+            x: -1000,
+            y: -100,
+            width: 1000,
+            height: 700,
+        };
+        let parent = TileGeometry {
+            x: -990,
+            y: -100,
+            width: 500,
+            height: 700,
+            border: 2,
+        };
+        let dialog = dialog_tile(parent, area, (300, 200), 2, false).unwrap();
+        assert_eq!(dialog.content_size(), (300, 200));
+        assert_eq!((dialog.x, dialog.y), (-892, 148));
+        let oversized = dialog_tile(parent, area, (i32::MAX, i32::MAX), i32::MAX, false).unwrap();
+        assert_eq!(
+            (oversized.x, oversized.y, oversized.width, oversized.height),
+            (-990, -100, 980, 700)
+        );
+        assert!(oversized.content_size().0 > 0 && oversized.content_size().1 > 0);
+        let invisible = TileGeometry { x: 2000, ..parent };
+        assert!(dialog_tile(invisible, area, (300, 200), 2, false).is_none());
+        assert!(
+            dialog_tile(
+                parent,
+                OutputGeometry { height: 0, ..area },
+                (300, 200),
+                2,
+                false
+            )
+            .is_none()
+        );
+        let maximized = dialog_tile(parent, area, (300, 200), 2, true).unwrap();
+        assert_eq!((maximized.width, maximized.height), (980, 700));
+    }
 
     const OUTPUT: OutputGeometry = OutputGeometry {
         x: -1000,

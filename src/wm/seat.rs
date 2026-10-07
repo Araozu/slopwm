@@ -32,6 +32,8 @@ pub(super) struct Seat {
     /// window-manager focus requests are ignored by the compositor, so skip
     /// sending them.
     pub(super) layer_exclusive: bool,
+    pub(super) layer_non_exclusive: bool,
+    pub(super) focus_dirty: bool,
 }
 
 impl Seat {
@@ -46,17 +48,38 @@ impl Seat {
             pending_actions: VecDeque::new(),
             layer_seat: None,
             layer_exclusive: false,
+            layer_non_exclusive: false,
+            focus_dirty: false,
         }
     }
 
     pub(super) fn do_actions(&mut self, wm: &mut WindowManager, proxy: &RiverWindowManagerV1) {
         // Locked sessions must not run queued bindings. River may still
         // deliver presses while locked, so discard them instead.
-        if wm.session_locked {
+        if wm.session_locked || wm.quitting {
             self.pending_actions.clear();
             return;
         }
         while let Some(action) = self.pending_actions.pop_front() {
+            let focused = wm
+                .active_output
+                .as_ref()
+                .and_then(|id| wm.outputs.get(id))
+                .and_then(|output| output.workspaces.current().focused.clone());
+            if matches!(
+                action,
+                Action::FocusNext
+                    | Action::FocusPrevious
+                    | Action::FocusUp
+                    | Action::FocusDown
+                    | Action::FocusOutputNext
+                    | Action::FocusOutputPrevious
+                    | Action::FocusWorkspaceUp
+                    | Action::FocusWorkspaceDown
+            ) {
+                self.layer_non_exclusive = false;
+                self.focus_dirty = true;
+            }
             match action {
                 Action::Spawn(argv) => {
                     if let Err(error) = spawn_reaped(&argv) {
@@ -64,7 +87,7 @@ impl Seat {
                     }
                 }
                 Action::Close => {
-                    if let Some(window) = self.focused.as_ref() {
+                    if let Some(window) = focused.as_ref() {
                         window.close();
                     }
                 }
@@ -85,8 +108,13 @@ impl Seat {
                 Action::AlignWindowRight => wm.align_window_right(),
                 Action::Preselect(direction) => wm.preselect(direction),
                 Action::CancelPreselection => wm.preselection = None,
+                Action::ReloadConfig => wm.reload_requested = true,
+                Action::Quit => {
+                    wm.quitting = true;
+                    self.pending_actions.clear();
+                }
                 Action::ChangeWidthPercent(delta) => {
-                    if let Some(window) = self.focused.as_ref() {
+                    if let Some(window) = focused.as_ref() {
                         wm.change_width(window, delta);
                     }
                 }
@@ -106,7 +134,7 @@ impl Seat {
                     if let Some(window) = wm
                         .windows
                         .iter_mut()
-                        .find(|window| Some(&window.proxy) == self.focused.as_ref())
+                        .find(|window| Some(&window.proxy) == focused.as_ref())
                     {
                         match action {
                             Action::ToggleSoftFullscreen => {
@@ -134,7 +162,7 @@ impl Seat {
     pub(super) fn sync_focus(&mut self, wm: &WindowManager) {
         // A layer surface with exclusive focus owns keyboard focus; the
         // compositor ignores our focus requests until it releases exclusivity.
-        if self.layer_exclusive {
+        if self.layer_exclusive || wm.session_locked {
             return;
         }
         // Shared focus is intentional: every seat follows the active output's
@@ -144,9 +172,11 @@ impl Seat {
             .as_ref()
             .and_then(|id| wm.outputs.get(id))
             .and_then(|output| output.workspaces.current().focused.as_ref());
-        if self.focused.as_ref() == focused {
+        if self.focused.as_ref() == focused && (self.layer_non_exclusive || !self.focus_dirty) {
             return;
         }
+        self.layer_non_exclusive = false;
+        self.focus_dirty = false;
         match focused {
             Some(window) => {
                 self.proxy.focus_window(window);
@@ -155,6 +185,11 @@ impl Seat {
                     .iter()
                     .find(|candidate| &candidate.proxy == window)
                 {
+                    if window.dialog
+                        && let Some(parent) = wm.tiled_window(&window.proxy)
+                    {
+                        parent.node.place_top();
+                    }
                     window.node.place_top();
                 }
                 self.focused = Some(window.clone());

@@ -7,6 +7,8 @@ borders, keyboard repeat rate/delay, monitor growth direction, width steps,
 and soft/true fullscreen.
 Dynamic workspaces are independent per monitor and keep one empty workspace
 below the occupied ones.
+Live configuration reload, graceful manager replacement, floating parent-aware
+dialogs, and vertical panel reservations are implemented as of 2026-10-07.
 The Rust demo walkthrough records the original floating reference.
 
 Read in this order:
@@ -19,6 +21,8 @@ Read in this order:
    requirements, code entry points, and gaps to address.
 4. [Implementation plan](implementation-plan.md): current module responsibilities,
    remaining milestones, and meaningful validation scenarios.
+5. [Testing](testing.md): offline protocol regressions and a repeatable controlled
+   River checklist, including checks that still need a live session.
 
 ## References and provenance
 

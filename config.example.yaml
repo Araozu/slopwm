@@ -5,7 +5,8 @@
 # Copy to $XDG_CONFIG_HOME/slopwm/config.yml, or ~/.config/slopwm/config.yml
 # when XDG_CONFIG_HOME is unset or invalid. Alternatively, pass --config PATH.
 # Validate without Wayland: cargo run -- --config config.example.yaml --check-config
-# Configuration is read at startup; restart slopwm after editing it.
+# Reload after editing with Super+Shift+r or SIGHUP. Invalid reloads retain
+# the last working configuration, including its bindings.
 # Unknown settings/actions and duplicate shortcuts are rejected.
 
 # Keyboard repeat for all keyboards, including those connected later.
@@ -141,7 +142,7 @@ keybindings:
   "Super+Alt+Shift+Up": move-to-workspace-up
   "Super+Alt+Shift+Down": move-to-workspace-down
 
-  # Use 98% of the monitor width and its full height, temporarily hiding sibling
+  # Use 98% of the monitor width and available height, temporarily hiding sibling
   # rows. Toggle again to restore the previous width and vertical stack.
   "Super+f": toggle-soft-fullscreen
 
@@ -163,8 +164,15 @@ keybindings:
   "Super+Ctrl+Down": preselect-down
   "Super+Ctrl+Escape": preselect-cancel
 
+  # Validate and apply this file again without restarting the session.
+  "Super+Shift+r": reload-config
+
   # Exit the entire Wayland session.
   "Super+Shift+Escape": exit
+
+  # Stop only the window manager, keeping River and applications alive.
+  # No built-in shortcut; SIGTERM and SIGINT also request graceful shutdown.
+  # "Super+Ctrl+Shift+Escape": quit
 
   # Optional bindings: uncomment within this map; install the commands you use.
   # The terminal title below is passed as one argument, including its space.

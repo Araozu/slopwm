@@ -16,9 +16,16 @@ use super::WindowManager;
 pub(super) struct InputDevice {
     proxy: RiverInputDeviceV1,
     configure: bool,
+    keyboard: bool,
 }
 
 impl WindowManager {
+    pub(super) fn reload_keyboard_settings(&mut self) {
+        for device in self.input_devices.values_mut() {
+            device.configure = device.keyboard;
+        }
+    }
+
     pub(super) fn configure_keyboards(&mut self) {
         for device in self.input_devices.values_mut() {
             if std::mem::take(&mut device.configure) {
@@ -48,6 +55,7 @@ impl Dispatch<RiverInputManagerV1, ()> for AppData {
                     InputDevice {
                         proxy: id,
                         configure: false,
+                        keyboard: false,
                     },
                 );
             }
@@ -82,6 +90,7 @@ impl Dispatch<RiverInputDeviceV1, ()> for AppData {
             } => {
                 if let Some(device) = state.wm.input_devices.get_mut(&proxy.id()) {
                     device.configure = true;
+                    device.keyboard = true;
                     // Device events are independent of window-management sequences.
                     state.request_manage_sequence();
                 }

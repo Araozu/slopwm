@@ -20,6 +20,7 @@ use super::seat::Seat;
 pub(super) struct XkbBinding {
     proxy: RiverXkbBindingV1,
     action: Action,
+    enabled: bool,
 }
 
 impl Seat {
@@ -28,6 +29,7 @@ impl Seat {
         river_xkb: &RiverXkbBindingsV1,
         qh: &QueueHandle<AppData>,
         keybindings: &[KeyBinding],
+        locked: bool,
     ) {
         if self.new {
             for binding in keybindings {
@@ -37,16 +39,27 @@ impl Seat {
                     binding.modifiers,
                     binding.keysym,
                     binding.action.clone(),
+                    !locked,
                 );
             }
             self.new = false;
         }
+        for binding in self.xkb_bindings.values_mut() {
+            if binding.enabled == locked {
+                if locked {
+                    binding.proxy.disable();
+                } else {
+                    binding.proxy.enable();
+                }
+                binding.enabled = !locked;
+            }
+        }
     }
 
     pub(super) fn destroy_bindings(&mut self) {
-        self.xkb_bindings
-            .values_mut()
-            .for_each(|binding| binding.proxy.destroy());
+        for (_, binding) in self.xkb_bindings.drain() {
+            binding.proxy.destroy();
+        }
     }
 
     fn create_xkb_binding(
@@ -56,10 +69,17 @@ impl Seat {
         mods: Modifiers,
         keysym: u32,
         action: Action,
+        enabled: bool,
     ) {
         let proxy = river_xkb.get_xkb_binding(&self.proxy, keysym, mods, qh, self.proxy.id());
-        proxy.enable();
-        let binding = XkbBinding { proxy, action };
+        if enabled {
+            proxy.enable();
+        }
+        let binding = XkbBinding {
+            proxy,
+            action,
+            enabled,
+        };
         self.xkb_bindings.insert(binding.proxy.id(), binding);
     }
 }
@@ -76,14 +96,15 @@ impl Dispatch<RiverXkbBindingV1, ObjectId> for AppData {
         use crate::protocol::river_xkb_binding_v1::Event;
         // While locked, drop presses instead of queueing them. Queued actions
         // from before the lock are discarded separately before they can run.
-        if state.wm.session_locked {
+        if state.wm.session_locked || state.wm.quitting {
             return;
         }
-        let seat = state.wm.seats.get_mut(data).expect("Seat not found");
-        let binding = seat
-            .xkb_bindings
-            .get(&proxy.id())
-            .expect("xkb_binding not found");
+        let Some(seat) = state.wm.seats.get_mut(data).filter(|seat| !seat.removed) else {
+            return;
+        };
+        let Some(binding) = seat.xkb_bindings.get(&proxy.id()) else {
+            return;
+        };
         match event {
             Event::Pressed => seat.pending_actions.push_back(binding.action.clone()),
             Event::Released => {}

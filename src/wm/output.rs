@@ -20,6 +20,7 @@ pub(super) struct Output {
     pub(super) layer_output: Option<RiverLayerShellOutputV1>,
     pub(super) workspaces: Workspaces,
     pub(super) geometry: OutputGeometry,
+    pub(super) non_exclusive_area: Option<OutputGeometry>,
 }
 
 impl Output {
@@ -31,11 +32,16 @@ impl Output {
             layer_output: None,
             workspaces: Workspaces::default(),
             geometry: OutputGeometry::default(),
+            non_exclusive_area: None,
         }
+    }
+
+    pub(super) fn work_area(&self) -> OutputGeometry {
+        super::layout::work_area(self.geometry, self.non_exclusive_area)
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct OutputGeometry {
     pub(super) x: i32,
     pub(super) y: i32,
@@ -53,11 +59,9 @@ impl Dispatch<RiverOutputV1, ()> for AppData {
         _qh: &QueueHandle<Self>,
     ) {
         use crate::protocol::river_output_v1::Event;
-        let output = state
-            .wm
-            .outputs
-            .get_mut(&proxy.id())
-            .expect("Output not found");
+        let Some(output) = state.wm.outputs.get_mut(&proxy.id()) else {
+            return;
+        };
         match event {
             Event::Removed => output.removed = true,
             Event::WlOutput { name } => output.wl_output_name = Some(name),
