@@ -1,8 +1,18 @@
 # Rust demo walkthrough
 
 Reference: `/home/fernando/projects/river/tinyrwm/rust`. This is a small floating
-window manager, useful as a first working baseline. The source was inspected;
-building it or starting a River session was not part of this documentation pass.
+window manager, used as slopwm's imported baseline. This walkthrough describes
+the original local reference; slopwm's adaptations are recorded below.
+
+## Imported baseline
+
+[slopwm's main.rs](../src/main.rs) retains the reference's floating behavior and
+attribution. Its generated bindings now use the released River v0.4.8 XML
+(management version 5 and XKB version 3), and registry binding negotiates the
+server's version up to those maxima while retaining minimum requirements 4/1.
+The new window/output capture-session events are accepted and ignored.
+The package is named `slopwm`, and [Cargo.lock](../Cargo.lock) records dependency
+resolutions. See the [project README](../README.md) for current build/run commands.
 
 ## Build inputs
 
@@ -17,8 +27,8 @@ Rust edition 2024 and these dependency requirements:
 | `bitflags` | `2.11.0` | Generated protocol bitfields |
 
 These are the demo's semver requirements, not exact locked resolutions or a
-claim about the latest releases. For slopwm, commit a lockfile once dependencies
-are added. No compositor library is involved in this example.
+claim about the latest releases. slopwm uses these same requirements and commits
+a lockfile. No compositor library is involved in this example.
 
 The [protocol module](/home/fernando/projects/river/tinyrwm/rust/src/main.rs:21)
 uses `generate_interfaces!` and `generate_client_code!` for both XML files.
@@ -90,10 +100,9 @@ cargo build --release
 river -c ./target/release/tinyrwm
 ```
 
-For future slopwm debugging, the corresponding command would be
-`WAYLAND_DEBUG=1 river -c ./target/debug/slopwm` after implementing and building
-the manager. The current Hello World binary cannot manage windows. Verify the
-installed River CLI before documenting a supported launch command for release.
+For slopwm debugging, run `cargo build` in this repository and then
+`WAYLAND_DEBUG=1 river -c ./target/debug/slopwm`. The `-c` launch syntax is also
+documented in River v0.4.8's manual.
 
 ## Gaps to address in slopwm
 

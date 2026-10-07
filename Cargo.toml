@@ -1,6 +1,15 @@
+# SPDX-FileCopyrightText: © 2026 Julian Andrews
+# SPDX-License-Identifier: 0BSD
+
 [package]
 name = "slopwm"
 version = "0.1.0"
 edition = "2024"
+description = "A small floating window manager for River"
+license = "0BSD"
 
 [dependencies]
+bitflags = "2.11.0"
+wayland-backend = "0.3.14"
+wayland-client = "0.31.13"
+wayland-scanner = "0.31.9"

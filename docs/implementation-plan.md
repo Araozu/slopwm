@@ -1,8 +1,9 @@
 # Proposed Rust implementation
 
-This is a starting proposal. The first milestone reproduces the demo's floating
-behavior; the final layout style, workspace model, and configuration format are
-still decisions to make.
+The tinyrwm floating implementation is now imported in `src/main.rs`, with
+released River v0.4.8 protocols and a dependency lockfile. The module boundaries
+below describe future refactoring. The final layout style, workspace model, and
+configuration format are still decisions to make.
 
 ## Module boundaries
 
@@ -34,14 +35,13 @@ the computed diff is empty.
 
 ## Milestones
 
-1. **Connect and complete sequences.** Vendor the demo's reviewed XML, add its
-   Rust dependency families, generate bindings, and negotiate the 4/1 baseline.
-   Handle absent globals and an unavailable manager cleanly. Finish empty manage
-   and render sequences without attempting desktop policy yet.
-2. **Reproduce the small floating manager.** Initialize and display windows,
-   click to focus/raise, cycle focus, spawn a configurable terminal, request
-   closure, and implement move/resize. Include proper cleanup and graceful
-   manager shutdown in this baseline.
+1. **Imported baseline.** Floating windows, click-to-focus/raise, focus cycling,
+   `foot` spawning, window closure, and pointer move/resize are present. Generated
+   bindings negotiate management 4–5 and XKB 1–3 using released, documented XML.
+2. **Harden the small floating manager.** Make the terminal configurable, add
+   complete object cleanup and graceful manager shutdown, and replace brittle
+   state lookups with tolerant handling of obsolete objects. See the
+   [reference gaps](rust-demo.md#gaps-to-address-in-slopwm).
 3. **Track real output and application state.** Store output rectangles, move
    windows to a remaining output after removal, handle size changes and parent
    relationships, implement fullscreen, and publish accurate capabilities.
@@ -56,7 +56,7 @@ Bars, launchers, custom titlebars, and animation can follow a working manager.
 Use compositor-drawn borders first if decoration is needed; custom decoration
 surfaces introduce buffer creation and commit synchronization work.
 
-## Validation when implementation starts
+## Validation
 
 Run `cargo fmt --check` and `cargo check` for implementation changes. For pure
 layout code, test invariants that can actually fail: positive content sizes,

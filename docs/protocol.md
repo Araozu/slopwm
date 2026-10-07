@@ -1,8 +1,8 @@
 # Protocol notes
 
-The detailed rules below are based on the demo's
-[window-management XML](/home/fernando/projects/river/tinyrwm/rust/protocol/river-window-management-v1.xml)
-and [XKB XML](/home/fernando/projects/river/tinyrwm/rust/protocol/river-xkb-bindings-v1.xml).
+The detailed rules below are based on the bundled River v0.4.8
+[window-management XML](../protocol/river-window-management-v1.xml)
+and [XKB XML](../protocol/river-xkb-bindings-v1.xml).
 Consult the [online management reference](https://isaacfreund.com/docs/wayland/river-window-management-v1/)
 when updating the bundled specifications.
 
@@ -144,19 +144,24 @@ user command. Track session lock events when deciding which bindings stay active
 
 ## Compatibility
 
-| Interface | Demo XML maximum | Demo actually binds | Online reference observed |
+| Interface | Original demo XML / binding | slopwm bundled maximum | slopwm negotiated range |
 | --- | --- | --- | --- |
-| `river_window_manager_v1` | 4 | 4; rejects a server below 4 | 5 |
-| `river_xkb_bindings_v1` | 2 | 1; rejects a server below 1 | 3 |
+| `river_window_manager_v1` | 4 / 4 | 5 | 4–5 |
+| `river_xkb_bindings_v1` | 2 / 1 | 3 | 1–3 |
 
-The online values were checked on 2026-10-06 in the
+The bundled maximums match the documentation checked on 2026-10-06 in the
 [management](https://isaacfreund.com/docs/wayland/river-window-management-v1/) and
 [XKB](https://isaacfreund.com/docs/wayland/river-xkb-bindings-v1/) references.
-They describe documentation, not the version installed locally. The demo's
-`exit_session()` needs management interface version 4.
+They come from the tagged **River v0.4.8 release**, commit
+`c4b5f706314555f4846e25b8d3635631387b3fdd`; see
+[protocol provenance](../protocol/README.md). The installed compositor still
+determines which version can actually be bound. `exit_session()` needs
+management interface version 4.
 
-For the initial implementation, use the demo's explicit 4/1 binding requirements.
-If later supporting older servers, bind at most the lesser of the advertised
-version and the generated version, enforce a minimum for required features,
-and gate every newer request. Bundling newer XML alone does not enable features
+slopwm preserves the demo's minimum requirements and binds the lesser of the
+advertised and generated versions. The imported handlers explicitly ignore the
+version-5 window/output capture-session events; capture UI remains future work.
+The generated XKB seat interface includes version-3 modifier watching, but the
+baseline does not create that optional object. Gate any future newer requests
+by the negotiated version. Bundling newer XML alone does not enable features
 when binding an older version.

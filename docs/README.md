@@ -1,8 +1,9 @@
 # slopwm development notes
 
 Research recorded on **2026-10-06** for a Rust window manager running on River.
-The repository currently contains a Cargo package and a Hello World entry point;
-the implementation described here is planned work.
+The repository now contains the imported tinyrwm floating manager, adapted to
+the documented protocols from River v0.4.8. Layout and desktop improvements
+beyond that baseline are planned work.
 
 Read in this order:
 
@@ -23,7 +24,8 @@ Read in this order:
 | [Online window-management specification](https://isaacfreund.com/docs/wayland/river-window-management-v1/) | Current reference; manager interface version 5 when checked |
 | [Online XKB bindings specification](https://isaacfreund.com/docs/wayland/river-xkb-bindings-v1/) | Current reference; global interface version 3 when checked |
 | [Local Rust demo README](/home/fernando/projects/river/tinyrwm/rust/README.md) and [source](/home/fernando/projects/river/tinyrwm/rust/src/main.rs) | Concrete Rust implementation |
-| [Local window-management XML](/home/fernando/projects/river/tinyrwm/rust/protocol/river-window-management-v1.xml) and [XKB XML](/home/fernando/projects/river/tinyrwm/rust/protocol/river-xkb-bindings-v1.xml) | Detailed rules used in these notes; interface versions 4 and 2 respectively |
+| [Bundled protocol provenance](../protocol/README.md) | Released River v0.4.8 XML; management version 5 and XKB version 3 |
+| [Local window-management XML](/home/fernando/projects/river/tinyrwm/rust/protocol/river-window-management-v1.xml) and [XKB XML](/home/fernando/projects/river/tinyrwm/rust/protocol/river-xkb-bindings-v1.xml) | Original demo specifications; interface versions 4 and 2 respectively |
 
 The reference checkout is `/home/fernando/projects/river/tinyrwm`, at commit
 `2261adfa3f5854726b8694bbacea29651e78a81d`. Its Rust source has a local import-order
@@ -35,5 +37,5 @@ still have version 1. Keep the advertised version, bundled XML version, and
 version actually bound by the client distinct. See [compatibility](protocol.md#compatibility).
 
 The architecture summary comes from the article. Detailed implementation notes
-come from the local demo and its XML. Module boundaries and milestones are
-proposals for slopwm, not requirements imposed by River.
+come from the local demo and the bundled released XML. Module boundaries and
+remaining milestones are proposals for slopwm, not requirements imposed by River.
