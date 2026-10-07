@@ -4,10 +4,11 @@
 
 use wayland_backend::client::ObjectId;
 
+use crate::action::SpawnDirection;
 use crate::config::GrowthDirection;
 use crate::protocol::river_window_v1::RiverWindowV1;
 
-use super::{WindowManager, layout::scrolling_tiles, window::Window};
+use super::{WindowManager, layout::scrolling_tiles, preselection::Preselection, window::Window};
 
 struct FocusedColumn {
     columns: Vec<Vec<usize>>,
@@ -21,7 +22,7 @@ impl WindowManager {
         self.next_column
     }
 
-    pub(super) fn insert_window(&mut self, mut window: Window, output_id: ObjectId) {
+    pub(super) fn insert_window(&mut self, window: Window, output_id: ObjectId) {
         let output = &self.outputs[&output_id];
         let name = output
             .wl_output_name
@@ -50,6 +51,51 @@ impl WindowManager {
             || insertion_index(focused, self.windows.len(), direction),
             |index| index + 1,
         );
+        self.insert_window_at(window, output_id, index);
+    }
+
+    pub(super) fn insert_preselected_window(
+        &mut self,
+        mut window: Window,
+        selection: Preselection,
+    ) {
+        self.active_output = Some(selection.output.clone());
+        let anchor = self.windows.iter().position(|candidate| {
+            Some(&candidate.proxy) == selection.window.as_ref()
+                && candidate.output.as_ref() == Some(&selection.output)
+        });
+        let Some(anchor) = anchor else {
+            // On an empty monitor all directions open the first column.
+            self.insert_window(window, selection.output);
+            return;
+        };
+        let column = self.windows[anchor].column;
+        let rows: Vec<_> = self
+            .windows
+            .iter()
+            .enumerate()
+            .filter_map(|(index, candidate)| {
+                (candidate.column == column && candidate.output.as_ref() == Some(&selection.output))
+                    .then_some(index)
+            })
+            .collect();
+        let index = match selection.direction {
+            SpawnDirection::Left => rows[0],
+            SpawnDirection::Right => rows.last().unwrap() + 1,
+            SpawnDirection::Up | SpawnDirection::Down => {
+                window.column = column;
+                window.tile_width = self.windows[anchor].tile_width;
+                window.tile_width.soft_fullscreen = false;
+                for row in &rows {
+                    self.windows[*row].tile_width.soft_fullscreen = false;
+                }
+                anchor + usize::from(selection.direction == SpawnDirection::Down)
+            }
+        };
+        self.insert_window_at(window, selection.output, index);
+    }
+
+    fn insert_window_at(&mut self, mut window: Window, output_id: ObjectId, index: usize) {
         window.output = Some(output_id.clone());
         self.leave_other_fullscreen(&window.proxy, &output_id);
         self.outputs.get_mut(&output_id).unwrap().focused = Some(window.proxy.clone());

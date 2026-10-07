@@ -102,6 +102,13 @@ keybindings:
   # Width is clamped to 1–98%; stacked rows resize together. Leaves fullscreen.
   "Super+equal": {change-width-percent: 10}
   "Super+minus": {change-width-percent: -10}
+  # Select the side of the focused tile for the next regular app window.
+  # A translucent arrow previews the selected direction; repeat to clear it.
+  "Super+Ctrl+Left": preselect-left
+  "Super+Ctrl+Right": preselect-right
+  "Super+Ctrl+Up": preselect-up
+  "Super+Ctrl+Down": preselect-down
+  "Super+Ctrl+Escape": preselect-cancel
 
   # Exit the entire Wayland session.
   "Super+Escape": exit

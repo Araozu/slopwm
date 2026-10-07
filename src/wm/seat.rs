@@ -69,6 +69,8 @@ impl Seat {
                     wm.stack_window(matches!(action, Action::StackPrevious));
                 }
                 Action::Unstack => wm.unstack_window(),
+                Action::Preselect(direction) => wm.preselect(direction),
+                Action::CancelPreselection => wm.preselection = None,
                 Action::ChangeWidthPercent(delta) => {
                     if let Some(window) = self.focused.as_ref() {
                         wm.change_width(window, delta);
