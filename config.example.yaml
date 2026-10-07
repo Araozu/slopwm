@@ -29,6 +29,10 @@ keybindings:
   "Super+u": unstack
   "Super+m": focus-output-next
   "Super+Shift+m": focus-output-previous
+  "Super+Ctrl+Up": focus-workspace-up
+  "Super+Ctrl+Down": focus-workspace-down
+  "Super+Ctrl+Shift+Up": move-to-workspace-up
+  "Super+Ctrl+Shift+Down": move-to-workspace-down
   "Super+f": toggle-soft-fullscreen
   "Super+Shift+f": toggle-fullscreen
   "Super+equal": {change-width-percent: 10}

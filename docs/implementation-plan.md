@@ -19,6 +19,7 @@ keyboard actions, borders, initial widths, and per-monitor growth directions.
 | `src/wm/seat.rs` | Seat state, focus policy, action execution, and seat-event dispatch |
 | `src/wm/bindings.rs` | Configured keyboard bindings, binding lifecycle, and event dispatch |
 | `src/wm/columns.rs` | Column ordering, stack/unstack, focus navigation, and layout policy |
+| `src/wm/workspaces.rs` | Per-output dynamic workspace lifecycle, remembered focus, navigation, and window moves |
 | `src/wm/layout.rs` | Pure scrolling geometry, borders, width state, and vertical splitting |
 | `protocol/*.xml` | Reviewed protocol definitions with their original notices |
 
@@ -33,6 +34,10 @@ Windows retain width percentages and column membership separately from desired
 tile rectangles, cached dimension proposals, and confirmed content dimensions.
 Focus and render order are independent of stable column/row order. Scrolled-away
 windows keep their monitor membership; visibility is never used to infer it.
+Workspace IDs remain stable when empty workspaces are removed. Every output
+keeps one trailing empty workspace, and each workspace remembers its own focus.
+Layouts include inactive workspaces, while render visibility includes only the
+selected workspace on each output, including for true fullscreen windows.
 Floating pointer operations are removed. Pointer motion does not change focus.
 
 The current handlers propose dimensions during manage and reconcile geometry
@@ -60,8 +65,10 @@ manage/render rules.
 4. **Scrolling layout.** Stable-width columns grow left by default, with
    per-monitor overrides. Stack/unstack actions support vertical rows. The
    focused column keeps a 1% left inset; soft fullscreen occupies 98% width and
-   full height, while true fullscreen delegates to River. Workspace policy
-   remains future work.
+   full height, while true fullscreen delegates to River. Each monitor has
+   dynamic workspaces with up/down navigation and window moves. Empty workspaces
+   are pruned above a single trailing empty workspace; output removal preserves
+   occupied workspace groups on a surviving output.
 5. **Make daily operation predictable.** Add useful diagnostics, configuration
    reload through `manage_dirty()`, lock-aware bindings, and any needed timer/IPC
    integration. Gate optional protocol extensions by negotiated versions.
@@ -92,6 +99,14 @@ Use a controlled River session to check behavior beyond compilation:
   stay fixed. Click a visible neighboring tile and check explicit focus.
 - Reconfigure/remove an output and leave fullscreen; verify restored geometry
   and focus point to surviving objects.
+- Fill the bottom workspace and confirm a new empty one appears below. Empty
+  top/middle workspaces by closing or moving windows and verify navigation skips
+  them. Check remembered focus, stacks, widths, and both fullscreen modes when
+  switching workspaces, including an empty workspace's cleared focus.
+- Switch workspaces independently on two monitors, move a stacked row between
+  workspaces, and unplug a monitor with multiple occupied workspaces. Confirm
+  the surviving monitor retains distinct workspace groups and a single empty
+  workspace at the bottom.
 - Stop or restart the manager while applications remain open; distinguish this
   from the explicit command that exits the entire session.
 - Check startup against missing/older globals and an unavailable manager; report
@@ -112,3 +127,13 @@ pixels confirmed clipping, configured borders, the inset, and full output
 coverage in true fullscreen. Its application maximize/fullscreen requests also
 restored the expected tile. Physical-monitor interaction and older negotiated
 protocol versions were not exercised in that session.
+
+Dynamic-workspace validation on 2026-10-06 passed formatting, compilation,
+24 unit tests, and offline example configuration validation. An isolated River
+0.4.8 session with two headless monitors passed 15 checks covering workspace
+growth/pruning, independent monitor selections, remembered focus and fullscreen,
+stacked-row moves, keyboard/click focus, pointer focus invariance, and output
+removal/reconnection. Screenshot comparisons confirmed that inactive true
+fullscreen windows stay hidden. All 191 manage and 191 render sequences finished
+in order without protocol errors. Physical monitors and older negotiated
+protocol versions were not exercised.

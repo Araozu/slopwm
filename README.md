@@ -9,20 +9,27 @@ direction. Opening, closing, or focusing a window preserves the other windows'
 widths and scrolls the strip instead of squeezing it into the screen. Windows
 can also stack vertically inside a column using keyboard actions.
 
+Each monitor has its own dynamic list of workspaces, arranged from top to bottom.
+Each workspace keeps its scrolling strip, widths, stacks, and selected window.
+There is always one empty workspace at the bottom; using it creates a new empty
+one below. Empty workspaces above it disappear automatically. Switching
+workspaces affects only the active monitor and stops at the top or bottom.
+
 The focused tile's left edge always sits 1% of the monitor width from its left
 edge, even for a lone window. Tiles fill the monitor height, including their
 borders. Soft fullscreen uses 98% of the monitor width and restores the previous
 width and vertical stack when toggled off. Adjacent scrolled-away windows peek
 through the remaining margins. True fullscreen delegates geometry to River and
 covers the whole monitor; leaving it restores the tile. Selecting another tile
-on the same monitor also leaves true fullscreen.
+in the same workspace also leaves true fullscreen.
 
 The active monitor stays fixed until an explicit monitor shortcut, a window
 click, or output removal changes it. Moving the pointer never changes keyboard
 or monitor focus. Tiles are clipped to their own monitor, so scrolling cannot
-spill onto a neighboring screen. Removing a monitor moves its windows to a
-surviving monitor. slopwm uses River's output geometry without changing screen
-resolution or output positions.
+spill onto a neighboring screen. Removing a monitor moves its occupied
+workspaces to a surviving monitor, above that monitor's empty workspace.
+slopwm uses River's output geometry without changing screen resolution or output
+positions.
 
 ## Build and run
 
@@ -70,6 +77,10 @@ keybindings:
   "Super+Shift+Left": stack-previous
   "Super+u": unstack
   "Super+m": focus-output-next
+  "Super+Ctrl+Up": focus-workspace-up
+  "Super+Ctrl+Down": focus-workspace-down
+  "Super+Ctrl+Shift+Up": move-to-workspace-up
+  "Super+Ctrl+Shift+Down": move-to-workspace-down
   "Super+f": toggle-soft-fullscreen
   "Super+Shift+f": toggle-fullscreen
   "Super+equal": {change-width-percent: 10}
@@ -95,9 +106,18 @@ or `HDMI-A-1`. Unlisted monitors use the global setting. Output names require
 Actions include `close`, `focus-next`, `focus-previous`, `focus-output-next`,
 `focus-output-previous`, `toggle-soft-fullscreen`, `toggle-fullscreen`, and
 `exit` (which exits the entire Wayland session). Column focus cycles in physical
-left-to-right order within the active monitor, wrapping at either end. Monitor
+left-to-right order within the active workspace, wrapping at either end. Monitor
 focus cycles by River's output positions and remembers each monitor's selected
 tile, including when an empty monitor is selected.
+
+`focus-workspace-up` / `focus-workspace-down` select the workspace above / below
+on the active monitor. `move-to-workspace-up` / `move-to-workspace-down` move the
+focused window there and follow it. Moving a stacked row gives it its own column
+and leaves the remaining rows together. Moving a window leaves fullscreen and
+keeps its regular width. If the current workspace becomes empty, it is removed
+and the next workspace below is selected. The bottom empty workspace remains
+available and clears keyboard focus. Switching back restores the selected
+window and fullscreen state; other monitors keep their selected workspaces.
 
 `stack-next` / `stack-previous` move the focused window into the column on its
 right / left, adding it below that column's windows. The resulting stack shares
@@ -163,6 +183,8 @@ river -c './target/release/slopwm --config /absolute/path/config.yaml'
 | Super + Shift + Right / Left | Stack the focused window into the right / left column |
 | Super + u | Unstack the focused window into its own column |
 | Super + m / Super + Shift + m | Focus the next / previous monitor |
+| Super + Ctrl + Up / Down | Focus the workspace above / below on this monitor |
+| Super + Ctrl + Shift + Up / Down | Move the focused window to the workspace above / below and follow it |
 | Super + f | Toggle soft fullscreen (98% width) |
 | Super + Shift + f | Toggle true fullscreen |
 | Super + = / Super + - | Add / subtract 10 percentage points of width |

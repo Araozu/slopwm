@@ -26,6 +26,7 @@ pub(super) struct Window {
     pub(super) width: i32,
     pub(super) height: i32,
     pub(super) output: Option<ObjectId>,
+    pub(super) workspace: u64,
     pub(super) column: u64,
     pub(super) tile_width: TileWidth,
     pub(super) tile: Option<TileGeometry>,
@@ -49,6 +50,7 @@ impl Window {
             width: 0,
             height: 0,
             output: None,
+            workspace: 0,
             column: 0,
             tile_width: TileWidth::new(50),
             tile: None,
@@ -124,14 +126,15 @@ impl Window {
     }
 
     pub(super) fn render(&mut self, output: Option<OutputGeometry>, color: [u32; 4]) {
+        let Some(output) = output else {
+            self.set_visible(false);
+            return;
+        };
         if self.fullscreen && self.fullscreen_output.is_some() {
             self.set_visible(true);
             return;
         }
-        let intersection = self
-            .tile
-            .zip(output)
-            .and_then(|(tile, output)| tile.intersection(output));
+        let intersection = self.tile.and_then(|tile| tile.intersection(output));
         let Some((x, y, width, height)) = intersection else {
             self.set_visible(false);
             return;

@@ -77,6 +77,12 @@ impl Seat {
                 Action::FocusOutputNext | Action::FocusOutputPrevious => {
                     wm.cycle_output(matches!(action, Action::FocusOutputPrevious));
                 }
+                Action::FocusWorkspaceUp | Action::FocusWorkspaceDown => {
+                    wm.focus_workspace(matches!(action, Action::FocusWorkspaceUp));
+                }
+                Action::MoveToWorkspaceUp | Action::MoveToWorkspaceDown => {
+                    wm.move_to_workspace(matches!(action, Action::MoveToWorkspaceUp));
+                }
                 Action::ToggleSoftFullscreen | Action::ToggleFullscreen => {
                     if let Some(window) = wm
                         .windows
@@ -111,7 +117,7 @@ impl Seat {
             .active_output
             .as_ref()
             .and_then(|id| wm.outputs.get(id))
-            .and_then(|output| output.focused.as_ref());
+            .and_then(|output| output.workspaces.current().focused.as_ref());
         if self.focused.as_ref() == focused {
             return;
         }

@@ -29,20 +29,26 @@ impl WindowManager {
             .map(String::as_str);
         let direction = self.config.growth_direction(name);
         let focused_column = output
+            .workspaces
+            .current()
             .focused
             .as_ref()
             .and_then(|focused| self.windows.iter().find(|window| &window.proxy == focused))
             .map(|window| window.column);
         let existing = self.windows.iter().rposition(|candidate| {
-            candidate.output.as_ref() == Some(&output_id) && candidate.column == window.column
+            candidate.output.as_ref() == Some(&output_id)
+                && candidate.workspace == window.workspace
+                && candidate.column == window.column
         });
         let focused = match direction {
             GrowthDirection::Left => self.windows.iter().position(|candidate| {
                 candidate.output.as_ref() == Some(&output_id)
+                    && candidate.workspace == window.workspace
                     && Some(candidate.column) == focused_column
             }),
             GrowthDirection::Right => self.windows.iter().rposition(|candidate| {
                 candidate.output.as_ref() == Some(&output_id)
+                    && candidate.workspace == window.workspace
                     && Some(candidate.column) == focused_column
             }),
         };
@@ -51,8 +57,13 @@ impl WindowManager {
             |index| index + 1,
         );
         window.output = Some(output_id.clone());
-        self.leave_other_fullscreen(&window.proxy, &output_id);
-        self.outputs.get_mut(&output_id).unwrap().focused = Some(window.proxy.clone());
+        self.leave_other_fullscreen(&window.proxy, &output_id, window.workspace);
+        self.outputs
+            .get_mut(&output_id)
+            .unwrap()
+            .workspaces
+            .current_mut()
+            .focused = Some(window.proxy.clone());
         self.windows.insert(index, window);
     }
 
@@ -62,37 +73,48 @@ impl WindowManager {
             .iter()
             .find(|window| &window.proxy == proxy)
             .and_then(|window| window.output.clone())
+            .filter(|id| self.outputs.contains_key(id))
         {
-            self.leave_other_fullscreen(proxy, &output);
-            let column = self
+            let selected = self
                 .windows
                 .iter()
                 .find(|window| &window.proxy == proxy)
-                .unwrap()
-                .column;
+                .unwrap();
+            let (column, workspace) = (selected.column, selected.workspace);
+            self.leave_other_fullscreen(proxy, &output, workspace);
             for window in &mut self.windows {
                 if window.column == column && &window.proxy != proxy {
                     window.tile_width.soft_fullscreen = false;
                 }
             }
-            self.outputs.get_mut(&output).unwrap().focused = Some(proxy.clone());
+            let workspaces = &mut self.outputs.get_mut(&output).unwrap().workspaces;
+            workspaces.activate(workspace);
+            workspaces.current_mut().focused = Some(proxy.clone());
             self.active_output = Some(output);
         }
     }
 
-    fn leave_other_fullscreen(&mut self, focused: &RiverWindowV1, output: &ObjectId) {
+    fn leave_other_fullscreen(
+        &mut self,
+        focused: &RiverWindowV1,
+        output: &ObjectId,
+        workspace: u64,
+    ) {
         for window in &mut self.windows {
-            if &window.proxy != focused && window.output.as_ref() == Some(output) {
+            if &window.proxy != focused
+                && window.output.as_ref() == Some(output)
+                && window.workspace == workspace
+            {
                 window.fullscreen = false;
                 window.fullscreen_requested = None;
             }
         }
     }
 
-    fn column_indices(&self, output: &ObjectId) -> Vec<Vec<usize>> {
+    fn column_indices(&self, output: &ObjectId, workspace: u64) -> Vec<Vec<usize>> {
         let mut columns: Vec<Vec<usize>> = Vec::new();
         for (index, window) in self.windows.iter().enumerate() {
-            if window.output.as_ref() != Some(output) {
+            if window.output.as_ref() != Some(output) || window.workspace != workspace {
                 continue;
             }
             if let Some(column) = columns
@@ -109,8 +131,9 @@ impl WindowManager {
 
     fn focused_column(&self) -> Option<FocusedColumn> {
         let output_id = self.active_output.as_ref()?;
-        let focused = self.outputs[output_id].focused.as_ref()?;
-        let columns = self.column_indices(output_id);
+        let workspace = self.outputs[output_id].workspaces.current();
+        let focused = workspace.focused.as_ref()?;
+        let columns = self.column_indices(output_id, workspace.id);
         let (column, row) = columns.iter().enumerate().find_map(|(column, rows)| {
             rows.iter()
                 .position(|index| &self.windows[*index].proxy == focused)
@@ -225,7 +248,12 @@ impl WindowManager {
         let output = window.output.clone().unwrap();
         // Keep the original column as the insertion anchor after detaching its
         // focused window, so left/right growth applies to the whole stack.
-        self.outputs.get_mut(&output).unwrap().focused = self
+        self.outputs
+            .get_mut(&output)
+            .unwrap()
+            .workspaces
+            .current_mut()
+            .focused = self
             .windows
             .iter()
             .find(|sibling| sibling.column == original_column)
@@ -252,44 +280,47 @@ impl WindowManager {
         let outputs: Vec<_> = self.outputs.keys().cloned().collect();
         for id in outputs {
             let output = &self.outputs[&id];
-            let columns = self.column_indices(&id);
-            let soft: Vec<_> = columns
-                .iter()
-                .map(|rows| {
-                    rows.iter()
-                        .copied()
-                        .find(|index| self.windows[*index].tile_width.soft_fullscreen)
-                })
-                .collect();
-            let widths: Vec<_> = columns
-                .iter()
-                .zip(&soft)
-                .map(|(rows, soft)| {
-                    if soft.is_some() {
-                        98
+            for workspace in &output.workspaces.entries {
+                let columns = self.column_indices(&id, workspace.id);
+                let soft: Vec<_> = columns
+                    .iter()
+                    .map(|rows| {
+                        rows.iter()
+                            .copied()
+                            .find(|index| self.windows[*index].tile_width.soft_fullscreen)
+                    })
+                    .collect();
+                let widths: Vec<_> = columns
+                    .iter()
+                    .zip(&soft)
+                    .map(|(rows, soft)| {
+                        if soft.is_some() {
+                            98
+                        } else {
+                            self.windows[rows[0]].tile_width.percent()
+                        }
+                    })
+                    .collect();
+                let focused = columns
+                    .iter()
+                    .position(|rows| {
+                        rows.iter().any(|index| {
+                            Some(&self.windows[*index].proxy) == workspace.focused.as_ref()
+                        })
+                    })
+                    .unwrap_or(0);
+                let tiles =
+                    scrolling_tiles(output.geometry, &widths, focused, self.config.border.width);
+                for ((rows, soft), tile) in columns.into_iter().zip(soft).zip(tiles) {
+                    if let Some(selected) = soft {
+                        for index in rows {
+                            self.windows[index].tile = (index == selected).then_some(tile);
+                        }
                     } else {
-                        self.windows[rows[0]].tile_width.percent()
-                    }
-                })
-                .collect();
-            let focused = columns
-                .iter()
-                .position(|rows| {
-                    rows.iter()
-                        .any(|index| Some(&self.windows[*index].proxy) == output.focused.as_ref())
-                })
-                .unwrap_or(0);
-            let tiles =
-                scrolling_tiles(output.geometry, &widths, focused, self.config.border.width);
-            for ((rows, soft), tile) in columns.into_iter().zip(soft).zip(tiles) {
-                if let Some(selected) = soft {
-                    for index in rows {
-                        self.windows[index].tile = (index == selected).then_some(tile);
-                    }
-                } else {
-                    let tiles = tile.split_vertical(rows.len());
-                    for (index, tile) in rows.into_iter().zip(tiles) {
-                        self.windows[index].tile = Some(tile);
+                        let tiles = tile.split_vertical(rows.len());
+                        for (index, tile) in rows.into_iter().zip(tiles) {
+                            self.windows[index].tile = Some(tile);
+                        }
                     }
                 }
             }

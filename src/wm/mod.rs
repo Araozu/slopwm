@@ -9,6 +9,7 @@ mod layout;
 mod output;
 mod seat;
 mod window;
+mod workspaces;
 
 use std::collections::{HashMap, VecDeque};
 
@@ -23,13 +24,16 @@ use crate::protocol::{
     river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
 
-use self::{layout::TileWidth, output::Output, seat::Seat, window::Window};
+use self::{
+    layout::TileWidth, output::Output, seat::Seat, window::Window, workspaces::DetachedWorkspace,
+};
 
 #[derive(Debug, Default)]
 pub(crate) struct WindowManager {
     config: Config,
     windows: VecDeque<Window>,
     outputs: HashMap<ObjectId, Output>,
+    detached_workspaces: Vec<DetachedWorkspace>,
     pub(crate) output_names: HashMap<u32, String>,
     active_output: Option<ObjectId>,
     seats: HashMap<ObjectId, Seat>,
@@ -53,8 +57,9 @@ impl WindowManager {
         self.remove_windows();
         self.remove_seats();
         self.manage_outputs();
+        self.reconcile_workspaces();
         self.init_new_windows();
-        self.reconcile_focus();
+        self.reconcile_workspaces();
         for window in &mut self.windows {
             window.apply_requests();
         }
@@ -84,6 +89,7 @@ impl WindowManager {
                 .output
                 .as_ref()
                 .and_then(|id| self.outputs.get(id))
+                .filter(|output| output.workspaces.current().id == window.workspace)
                 .map(|output| output.geometry);
             window.render(output, self.config.border.color);
         }
@@ -110,8 +116,19 @@ impl WindowManager {
     }
 
     fn manage_outputs(&mut self) {
+        let old_active = self.active_output.clone();
+        let old_workspace = old_active
+            .as_ref()
+            .and_then(|id| self.outputs.get(id))
+            .map(|output| output.workspaces.current().id);
         self.outputs.retain(|_, output| {
             if output.removed {
+                for workspace in std::mem::take(&mut output.workspaces.entries) {
+                    self.detached_workspaces.push(DetachedWorkspace {
+                        output: output.proxy.id(),
+                        workspace,
+                    });
+                }
                 output.proxy.destroy();
                 false
             } else {
@@ -133,19 +150,45 @@ impl WindowManager {
                 .is_some_and(|id| !outputs.contains(id))
             {
                 window.output_removed();
-                window.output = None;
             }
         }
-        // Rehome only windows whose monitor disappeared. Scrolled-away windows
-        // retain their monitor even when their nodes are far outside its bounds.
+        // Keep each removed monitor's occupied workspaces distinct. Missing
+        // output membership survives a period with no outputs, for later rehome.
         if let Some(target) = self.active_output.clone() {
-            while let Some(index) = self
-                .windows
-                .iter()
-                .position(|window| !window.new && window.output.is_none())
-            {
-                let window = self.windows.remove(index).unwrap();
-                self.insert_window(window, target.clone());
+            let mut migrated = HashMap::new();
+            let workspaces = &mut self.outputs.get_mut(&target).unwrap().workspaces;
+            // The window deque follows column order. Import workspace groups
+            // in their original vertical order instead of their first window's
+            // position in that deque.
+            for detached in self.detached_workspaces.drain(..) {
+                if self.windows.iter().any(|window| {
+                    window.output.as_ref() == Some(&detached.output)
+                        && window.workspace == detached.workspace.id
+                }) {
+                    migrated.insert(
+                        (Some(detached.output), detached.workspace.id),
+                        workspaces.import(detached.workspace.focused),
+                    );
+                }
+            }
+            for window in &mut self.windows {
+                if window.new
+                    || window
+                        .output
+                        .as_ref()
+                        .is_some_and(|id| outputs.contains(id))
+                {
+                    continue;
+                }
+                let origin = (window.output.clone(), window.workspace);
+                let workspace = *migrated
+                    .entry(origin.clone())
+                    .or_insert_with(|| workspaces.import(None));
+                if origin.0 == old_active && Some(origin.1) == old_workspace {
+                    workspaces.activate(workspace);
+                }
+                window.output = Some(target.clone());
+                window.workspace = workspace;
             }
         }
     }
@@ -154,6 +197,11 @@ impl WindowManager {
         let old = std::mem::take(&mut self.windows);
         for window in old {
             if window.closed {
+                for detached in &mut self.detached_workspaces {
+                    if detached.workspace.focused.as_ref() == Some(&window.proxy) {
+                        detached.workspace.focused = None;
+                    }
+                }
                 for seat in self.seats.values_mut() {
                     if seat.interacted.as_ref() == Some(&window.proxy) {
                         seat.interacted = None;
@@ -191,24 +239,8 @@ impl WindowManager {
             window.initialize();
             window.tile_width = TileWidth::new(self.config.scrolling.default_width_percent);
             window.column = self.allocate_column();
+            window.workspace = self.outputs[&output].workspaces.current().id;
             self.insert_window(window, output.clone());
-        }
-    }
-
-    fn reconcile_focus(&mut self) {
-        for (id, output) in &mut self.outputs {
-            if output.focused.as_ref().is_none_or(|focused| {
-                !self
-                    .windows
-                    .iter()
-                    .any(|window| &window.proxy == focused && window.output.as_ref() == Some(id))
-            }) {
-                output.focused = self
-                    .windows
-                    .iter()
-                    .find(|window| window.output.as_ref() == Some(id))
-                    .map(|window| window.proxy.clone());
-            }
         }
     }
 }
