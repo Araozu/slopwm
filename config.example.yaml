@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: 0BSD
+# Copy to ~/.config/slopwm/config.yaml (or $XDG_CONFIG_HOME/slopwm/config.yaml).
+# This map replaces the default keyboard bindings. Use keybindings: {} for none.
+# Keys use case-sensitive XKB names; modifiers may be combined with '+'.
+keybindings:
+  "Super+space":
+    spawn: [foot]
+  "Super+q": close
+  "Super+n": focus-next
+  "Super+Escape": exit # Exits the entire Wayland session.
+
+# Other examples to add to the map above:
+#  "Super+Return": {spawn: [foot, --title, "My terminal"]}
+#  "Super+d": {spawn: [fuzzel]}
+#  "XF86AudioMute": {spawn: [wpctl, set-mute, "@DEFAULT_AUDIO_SINK@", toggle]}

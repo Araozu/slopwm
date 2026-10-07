@@ -15,6 +15,7 @@ use wayland_backend::client::ObjectId;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 
 use crate::app::AppData;
+use crate::config::Config;
 use crate::protocol::{
     river_output_v1::RiverOutputV1, river_seat_v1::RiverSeatV1,
     river_window_manager_v1::RiverWindowManagerV1, river_window_v1::RiverWindowV1,
@@ -25,12 +26,20 @@ use self::{operation::SeatOp, output::Output, seat::Seat, window::Window};
 
 #[derive(Debug, Default)]
 pub(crate) struct WindowManager {
+    config: Config,
     windows: VecDeque<Window>,
     outputs: HashMap<ObjectId, Output>,
     seats: HashMap<ObjectId, Seat>,
 }
 
 impl WindowManager {
+    pub(crate) fn new(config: Config) -> Self {
+        Self {
+            config,
+            ..Self::default()
+        }
+    }
+
     fn handle_manage_start(
         &mut self,
         proxy: &RiverWindowManagerV1,
@@ -73,10 +82,9 @@ impl WindowManager {
                     for seat in self.seats.values_mut() {
                         if let SeatOp::Move { window_proxy, .. }
                         | SeatOp::Resize { window_proxy, .. } = &seat.op
+                            && window_proxy == &window.proxy
                         {
-                            if window_proxy == &window.proxy {
-                                seat.op_end();
-                            }
+                            seat.op_end();
                         }
                     }
                     return false;
@@ -107,7 +115,7 @@ impl WindowManager {
 
     fn init_new_seats(&mut self, river_xkb: &RiverXkbBindingsV1, qh: &QueueHandle<AppData>) {
         for seat in self.seats.values_mut() {
-            seat.init_bindings(river_xkb, qh);
+            seat.init_bindings(river_xkb, qh, &self.config.keybindings);
         }
     }
 

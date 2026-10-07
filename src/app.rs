@@ -5,6 +5,7 @@
 
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, protocol::wl_registry};
 
+use crate::config::Config;
 use crate::protocol::{
     river_window_manager_v1::RiverWindowManagerV1, river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
@@ -71,7 +72,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppData {
     }
 }
 
-pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // Queue up a get_registry event.
     let conn = Connection::connect_to_env()?;
     let display = conn.display();
@@ -79,7 +80,10 @@ pub(crate) fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _registry = display.get_registry(&event_queue.handle(), ());
 
     // Initial state
-    let mut app_data = AppData::default();
+    let mut app_data = AppData {
+        wm: WindowManager::new(config),
+        ..AppData::default()
+    };
 
     // Roundtrip to process the get_registry event and bind interfaces.
     event_queue.roundtrip(&mut app_data)?;

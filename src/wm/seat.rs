@@ -8,6 +8,7 @@ use std::collections::{HashMap, VecDeque};
 use wayland_backend::client::ObjectId;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 
+use crate::action::Action;
 use crate::app::AppData;
 use crate::protocol::{
     river_seat_v1::RiverSeatV1,
@@ -16,7 +17,7 @@ use crate::protocol::{
 };
 
 use super::{
-    bindings::{Action, PointerBinding, XkbBinding},
+    bindings::{PointerBinding, XkbBinding},
     operation::SeatOp,
     window::Window,
 };
@@ -31,7 +32,7 @@ pub(super) struct Seat {
     pub(super) interacted: Option<RiverWindowV1>,
     pub(super) xkb_bindings: HashMap<ObjectId, XkbBinding>,
     pub(super) pointer_bindings: HashMap<ObjectId, PointerBinding>,
-    pub(super) pending_action: Action,
+    pub(super) pending_action: Option<Action>,
     pub(super) op: SeatOp,
     pub(super) op_dx: i32,
     pub(super) op_dy: i32,
@@ -49,7 +50,7 @@ impl Seat {
             interacted: None,
             xkb_bindings: HashMap::new(),
             pointer_bindings: HashMap::new(),
-            pending_action: Action::None,
+            pending_action: None,
             op: SeatOp::None,
             op_dx: 0,
             op_dy: 0,
@@ -62,16 +63,19 @@ impl Seat {
         windows: &mut VecDeque<Window>,
         wm_proxy: &RiverWindowManagerV1,
     ) {
-        match self.pending_action {
-            Action::None => {}
+        let Some(action) = self.pending_action.take() else {
+            return;
+        };
+        match action {
             // Don't pass WAYLAND_DEBUG on to children, the added noise makes
             // debugging the window manager itself impractical.
-            Action::SpawnFoot => match std::process::Command::new("foot")
+            Action::Spawn(argv) => match std::process::Command::new(&argv[0])
+                .args(&argv[1..])
                 .env_remove("WAYLAND_DEBUG")
                 .spawn()
             {
                 Ok(_) => {}
-                Err(e) => eprintln!("Failed to spawn foot: {e}"),
+                Err(e) => eprintln!("Failed to spawn {:?}: {e}", argv[0]),
             },
             Action::Close => {
                 if let Some(window_proxy) = self.focused.as_ref() {
@@ -104,7 +108,6 @@ impl Seat {
             }
             Action::Exit => wm_proxy.exit_session(),
         }
-        self.pending_action = Action::None;
     }
 
     pub(super) fn focus_top(&mut self, windows: &VecDeque<Window>) {

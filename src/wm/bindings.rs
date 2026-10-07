@@ -1,29 +1,20 @@
 // SPDX-FileCopyrightText: © 2026 Julian Andrews
 // SPDX-License-Identifier: 0BSD
 
-//! Default input bindings, binding lifecycle, and queued actions.
+//! Configured keyboard bindings, default pointer bindings, and binding lifecycle.
 
 use wayland_backend::client::ObjectId;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 
+use crate::action::Action;
 use crate::app::AppData;
+use crate::config::KeyBinding;
 use crate::protocol::{
     river_pointer_binding_v1::RiverPointerBindingV1, river_seat_v1::Modifiers,
     river_xkb_binding_v1::RiverXkbBindingV1, river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
 
 use super::seat::Seat;
-
-#[derive(Debug, Clone, Copy)]
-pub(super) enum Action {
-    None,
-    SpawnFoot,
-    Close,
-    FocusNext,
-    Move,
-    Resize,
-    Exit,
-}
 
 #[derive(Debug)]
 pub(super) struct XkbBinding {
@@ -42,22 +33,23 @@ impl Seat {
         &mut self,
         river_xkb: &RiverXkbBindingsV1,
         qh: &QueueHandle<AppData>,
+        keybindings: &[KeyBinding],
     ) {
-        // See xkbcommon/xkbcommon-keysyms.h
-        const SPACE: u32 = 0x20;
-        const N: u32 = 0x6e;
-        const Q: u32 = 0x71;
-        const ESC: u32 = 0xff1b;
         // See linux/input-event-codes.h
         const BTN_LEFT: u32 = 0x110;
         const BTN_RIGHT: u32 = 0x111;
         let mods = Modifiers::Mod4;
 
         if self.new {
-            self.create_xkb_binding(river_xkb, qh, mods, SPACE, Action::SpawnFoot);
-            self.create_xkb_binding(river_xkb, qh, mods, Q, Action::Close);
-            self.create_xkb_binding(river_xkb, qh, mods, N, Action::FocusNext);
-            self.create_xkb_binding(river_xkb, qh, mods, ESC, Action::Exit);
+            for binding in keybindings {
+                self.create_xkb_binding(
+                    river_xkb,
+                    qh,
+                    binding.modifiers,
+                    binding.keysym,
+                    binding.action.clone(),
+                );
+            }
             self.create_pointer_binding(qh, mods, BTN_LEFT, Action::Move);
             self.create_pointer_binding(qh, mods, BTN_RIGHT, Action::Resize);
             self.new = false;
@@ -119,7 +111,7 @@ impl Dispatch<RiverXkbBindingV1, ObjectId> for AppData {
             .get(&proxy.id())
             .expect("xkb_binding not found");
         match event {
-            Event::Pressed => seat.pending_action = binding.action,
+            Event::Pressed => seat.pending_action = Some(binding.action.clone()),
             Event::Released => {}
             Event::StopRepeat => {}
         }
@@ -140,9 +132,9 @@ impl Dispatch<RiverPointerBindingV1, ObjectId> for AppData {
         let binding = seat
             .pointer_bindings
             .get(&proxy.id())
-            .expect("xkb_binding not found");
+            .expect("pointer_binding not found");
         match event {
-            Event::Pressed => seat.pending_action = binding.action,
+            Event::Pressed => seat.pending_action = Some(binding.action.clone()),
             Event::Released => {}
         }
     }

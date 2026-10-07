@@ -2,21 +2,23 @@
 
 The imported tinyrwm floating implementation is split into modules by
 responsibility, with released River v0.4.8 protocols and a dependency lockfile.
-The final layout style, workspace model, and configuration format are still
-decisions to make.
+Keyboard bindings and spawned commands are configured through YAML at startup.
+The final layout style and workspace model are still decisions to make.
 
 ## Module boundaries
 
 | Path | Responsibility |
 | --- | --- |
 | `src/main.rs` | Application entry point |
+| `src/config.rs` | YAML loading, XDG paths, key names, actions, and validation |
+| `src/action.rs` | Actions shared by configuration and input dispatch |
 | `src/app.rs` | Connection, registry negotiation, startup checks, and event loop |
 | `src/protocol.rs` | Generated River bindings and interface imports |
 | `src/wm/mod.rs` | Manager state, object creation/cleanup, and manage/render sequence orchestration |
 | `src/wm/window.rs` | Window state, geometry, and window-event dispatch |
 | `src/wm/output.rs` | Output state and output-event dispatch |
 | `src/wm/seat.rs` | Seat state, focus policy, action execution, and seat-event dispatch |
-| `src/wm/bindings.rs` | Default bindings, binding creation/destruction, and binding-event dispatch |
+| `src/wm/bindings.rs` | Configured keyboard/default pointer bindings, binding lifecycle, and event dispatch |
 | `src/wm/operation.rs` | Pointer move/resize state, dimension proposals, and render positioning |
 | `protocol/*.xml` | Reviewed protocol definitions with their original notices |
 
@@ -48,15 +50,17 @@ manage/render rules.
 1. **Imported baseline.** Floating windows, click-to-focus/raise, focus cycling,
    `foot` spawning, window closure, and pointer move/resize are present. Generated
    bindings negotiate management 4–5 and XKB 1–3 using released, documented XML.
-2. **Harden the small floating manager.** Make the terminal configurable, add
-   complete object cleanup and graceful manager shutdown, and replace brittle
+2. **Harden the small floating manager.** Keyboard bindings and terminal/command
+   spawning are now configurable with YAML; `--check-config` validates offline.
+   Add complete object cleanup and graceful manager shutdown, and replace brittle
    state lookups with tolerant handling of obsolete objects. See the
    [reference gaps](rust-demo.md#gaps-to-address-in-slopwm).
 3. **Track real output and application state.** Store output rectangles, move
    windows to a remaining output after removal, handle size changes and parent
    relationships, implement fullscreen, and publish accurate capabilities.
 4. **Choose and implement slopwm's layout policy.** Add a tiling algorithm or
-   richer floating behavior, then visibility/workspace actions and configuration.
+   richer floating behavior, then visibility/workspace actions and configuration
+   for those policies.
    Reuse the protocol backend rather than embedding requests in the algorithm.
 5. **Make daily operation predictable.** Add useful diagnostics, configuration
    reload through `manage_dirty()`, lock-aware bindings, and any needed timer/IPC
@@ -68,7 +72,9 @@ surfaces introduce buffer creation and commit synchronization work.
 
 ## Validation
 
-Run `cargo fmt --check` and `cargo check` for implementation changes. For pure
+Run `cargo fmt --check`, `cargo check`, and `cargo test` for implementation changes.
+Configuration tests cover replacement/default behavior, command arguments, XKB
+names/modifiers, invalid or conflicting bindings, and config-path fallback. For pure
 layout code, test invariants that can actually fail: positive content sizes,
 correct distribution of leftover pixels, negative output origins, and correct
 top/left resize anchoring. Avoid tests that just repeat request-building code.

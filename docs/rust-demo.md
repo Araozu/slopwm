@@ -16,6 +16,9 @@ server's version up to those maxima while retaining minimum requirements 4/1.
 The new window/output capture-session events are accepted and ignored.
 The package is named `slopwm`, and [Cargo.lock](../Cargo.lock) records dependency
 resolutions. See the [project README](../README.md) for current build/run commands.
+slopwm also adds [YAML keybinding configuration](../README.md#configure-keybindings)
+and arbitrary command spawning. Configuration is validated before connecting to
+Wayland; seats install the configured bindings during their first manage sequence.
 
 ## Build inputs
 
@@ -30,8 +33,9 @@ Rust edition 2024 and these dependency requirements:
 | `bitflags` | `2.11.0` | Generated protocol bitfields |
 
 These are the demo's semver requirements, not exact locked resolutions or a
-claim about the latest releases. slopwm uses these same requirements and commits
-a lockfile. No compositor library is involved in this example.
+claim about the latest releases. slopwm retains these requirements, adds Serde,
+`serde-saphyr` for YAML, and `xkbcommon` for keysym lookup, and commits a lockfile.
+The latter links to `libxkbcommon`; no compositor library is involved.
 
 The [protocol module](/home/fernando/projects/river/tinyrwm/rust/src/main.rs:21)
 uses `generate_interfaces!` and `generate_client_code!` for both XML files.
