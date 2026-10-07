@@ -24,3 +24,7 @@ of River. Read `README.md` for usage and `docs/README.md` for development notes.
   for scenarios. Report which checks ran and any that could not run.
 - Preserve existing SPDX attribution and unrelated working-tree changes.
   Stage only files belonging to the requested task.
+
+## Preferences
+
+- Focus never follows mouse. Explicit keybinds will change focus on window or screen
