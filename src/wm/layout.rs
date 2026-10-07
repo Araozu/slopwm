@@ -42,14 +42,21 @@ pub(super) struct TileGeometry {
 }
 
 impl TileGeometry {
-    pub(super) fn split_vertical(self, count: usize) -> Vec<Self> {
+    pub(super) fn split_vertical(self, count: usize, inner_gap: i64) -> Vec<Self> {
         // Allocate leftover pixels from top to bottom without losing height.
         // More rows than pixels cannot fit; give each row positive dimensions
-        // and let the monitor clip the overflow.
+        // and let the monitor clip the overflow. Gaps are fixed spacing between
+        // rows; tiny heights keep 1px rows and let the overflow clip.
+        let gap = inner_gap.max(0);
         let count = count.max(1) as i64;
         let height = i64::from(self.height);
-        let base = (height / count).max(1);
-        let remainder = if height >= count { height % count } else { 0 };
+        let available = height - gap * (count - 1);
+        let base = (available / count).max(1);
+        let remainder = if available >= count {
+            available % count
+        } else {
+            0
+        };
         let mut y = i64::from(self.y);
         (0..count)
             .map(|row| {
@@ -62,7 +69,7 @@ impl TileGeometry {
                         .min(((i64::from(self.width).min(row_height) - 1) / 2) as i32),
                     ..self
                 };
-                y += row_height;
+                y += row_height + gap;
                 tile
             })
             .collect()
@@ -100,6 +107,25 @@ impl TileGeometry {
 
 fn coordinate(value: i64) -> i32 {
     value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+}
+
+/// Outer gaps inset the tiling area on every side. The caller applies this to
+/// the panel-aware work area; true fullscreen bypasses it and covers the
+/// whole monitor. Oversized gaps clamp the area to empty instead of inverting
+/// it, so windows hide until gaps shrink.
+pub(super) fn outer_area(area: OutputGeometry, outer: i32) -> OutputGeometry {
+    let outer = i64::from(outer.max(0));
+    if outer == 0 {
+        return area;
+    }
+    let width = (i64::from(area.width) - 2 * outer).max(0);
+    let height = (i64::from(area.height) - 2 * outer).max(0);
+    OutputGeometry {
+        x: coordinate(i64::from(area.x) + outer),
+        y: coordinate(i64::from(area.y) + outer),
+        width: width.min(i64::from(i32::MAX)) as i32,
+        height: height.min(i64::from(i32::MAX)) as i32,
+    }
 }
 
 /// Panels reserve vertical space only. Horizontal widths and peeks always use
@@ -170,23 +196,34 @@ pub(super) fn pixel_widths(output_width: i32, widths: &[u8]) -> Vec<i64> {
         .collect()
 }
 
+fn strip_offset(widths_px: &[i64], focused: usize, inner_gap: i64) -> i64 {
+    let gap = inner_gap.max(0);
+    widths_px[..focused.min(widths_px.len())]
+        .iter()
+        .sum::<i64>()
+        + gap * focused.min(widths_px.len()) as i64
+}
+
 /// Minimal-scroll policy within the 98% logical area.
 ///
 /// The strip may use `output.x + inset .. output.x + width - inset`, leaving a
 /// 1% peek margin on each side for scrolled-away neighbors. If the focused
 /// tile already fits, the previous scroll is kept; otherwise the strip moves
-/// only as far as needed to bring it fully into view.
+/// only as far as needed to bring it fully into view. Column gaps are part of
+/// the strip: offsets include `inner_gap` between columns, while tile widths
+/// themselves are unchanged.
 pub(super) fn adjust_scroll(
     output_width: i32,
     widths_px: &[i64],
     focused: usize,
     prev_scroll: i64,
+    inner_gap: i64,
 ) -> i64 {
     let Some(focused_width) = widths_px.get(focused).copied() else {
         return prev_scroll;
     };
     let inset = inset_for(output_width);
-    let sum_before: i64 = widths_px[..focused].iter().sum();
+    let sum_before = strip_offset(widths_px, focused, inner_gap);
     let left = prev_scroll + sum_before;
     let right = left + focused_width;
     let min_left = inset;
@@ -200,9 +237,14 @@ pub(super) fn adjust_scroll(
     }
 }
 
-pub(super) fn centered_scroll(output_width: i32, widths_px: &[i64], focused: usize) -> Option<i64> {
+pub(super) fn centered_scroll(
+    output_width: i32,
+    widths_px: &[i64],
+    focused: usize,
+    inner_gap: i64,
+) -> Option<i64> {
     let focused_width = *widths_px.get(focused)?;
-    let sum_before: i64 = widths_px[..focused].iter().sum();
+    let sum_before = strip_offset(widths_px, focused, inner_gap);
     Some((i64::from(output_width) - focused_width) / 2 - sum_before)
 }
 
@@ -210,9 +252,10 @@ pub(super) fn right_aligned_scroll(
     output_width: i32,
     widths_px: &[i64],
     focused: usize,
+    inner_gap: i64,
 ) -> Option<i64> {
     let focused_width = *widths_px.get(focused)?;
-    let sum_before: i64 = widths_px[..focused].iter().sum();
+    let sum_before = strip_offset(widths_px, focused, inner_gap);
     Some(i64::from(output_width) - inset_for(output_width) - focused_width - sum_before)
 }
 
@@ -221,7 +264,9 @@ pub(super) fn place_tiles(
     widths_px: &[i64],
     scroll: i64,
     border: i32,
+    inner_gap: i64,
 ) -> Vec<TileGeometry> {
+    let gap = inner_gap.max(0);
     let mut x = i64::from(output.x) + scroll;
     widths_px
         .iter()
@@ -234,7 +279,7 @@ pub(super) fn place_tiles(
                 height: output.height,
                 border: border.min((width.min(output.height) - 1) / 2).max(0),
             };
-            x += i64::from(width);
+            x += i64::from(width) + gap;
             tile
         })
         .collect()
@@ -246,13 +291,14 @@ pub(super) fn scrolling_tiles(
     focused: usize,
     border: i32,
     prev_scroll: i64,
+    inner_gap: i64,
 ) -> (Vec<TileGeometry>, i64) {
     if output.width <= 0 || output.height <= 0 || focused >= widths.len() {
         return (Vec::new(), prev_scroll);
     }
     let sizes = pixel_widths(output.width, widths);
-    let scroll = adjust_scroll(output.width, &sizes, focused, prev_scroll);
-    let tiles = place_tiles(output, &sizes, scroll, border);
+    let scroll = adjust_scroll(output.width, &sizes, focused, prev_scroll, inner_gap);
+    let tiles = place_tiles(output, &sizes, scroll, border, inner_gap);
     (tiles, scroll)
 }
 
@@ -285,7 +331,7 @@ mod tests {
                 ..output
             }
         );
-        let (tiles, scroll) = scrolling_tiles(area, &[50, 50], 0, 2, 10);
+        let (tiles, scroll) = scrolling_tiles(area, &[50, 50], 0, 2, 10, 0);
         assert_eq!(scroll, 10);
         assert_eq!(
             (tiles[0].x, tiles[0].width, tiles[0].y, tiles[0].height),
@@ -366,7 +412,7 @@ mod tests {
     fn soft_fullscreen_and_single_small_tile_keep_the_left_inset() {
         for percent in [25, 98] {
             let (tiles, scroll) =
-                scrolling_tiles(OUTPUT, &[percent], 0, 2, inset_for(OUTPUT.width));
+                scrolling_tiles(OUTPUT, &[percent], 0, 2, inset_for(OUTPUT.width), 0);
             let tile = tiles[0];
             assert_eq!(scroll, inset_for(OUTPUT.width));
             assert_eq!(
@@ -381,9 +427,9 @@ mod tests {
     #[test]
     fn focus_scrolls_without_resizing_and_keeps_neighbor_peeks() {
         let (before, scroll) =
-            scrolling_tiles(OUTPUT, &[50, 98, 25], 0, 2, inset_for(OUTPUT.width));
+            scrolling_tiles(OUTPUT, &[50, 98, 25], 0, 2, inset_for(OUTPUT.width), 0);
         assert_eq!(scroll, 10);
-        let (after, scroll) = scrolling_tiles(OUTPUT, &[50, 98, 25], 1, 2, scroll);
+        let (after, scroll) = scrolling_tiles(OUTPUT, &[50, 98, 25], 1, 2, scroll, 0);
         assert_eq!(scroll, 10 - 500);
         assert_eq!(after[1].x, -990);
         assert_eq!(after[0].intersection(OUTPUT).unwrap().2, 10);
@@ -400,24 +446,24 @@ mod tests {
     fn fitting_focus_keeps_scroll_and_overshoot_moves_only_what_is_needed() {
         // Two narrow tiles fit in the 98% logical area: focusing either keeps
         // the strip where it is.
-        let (first, scroll) = scrolling_tiles(OUTPUT, &[25, 25], 0, 2, inset_for(OUTPUT.width));
+        let (first, scroll) = scrolling_tiles(OUTPUT, &[25, 25], 0, 2, inset_for(OUTPUT.width), 0);
         assert_eq!(first[0].x, -990);
-        let (second, kept) = scrolling_tiles(OUTPUT, &[25, 25], 1, 2, scroll);
+        let (second, kept) = scrolling_tiles(OUTPUT, &[25, 25], 1, 2, scroll, 0);
         assert_eq!(kept, scroll);
         assert_eq!(second[0].x, -990);
         assert_eq!(second[1].x, -740);
         // A wide focused tile that overflows the right margin shifts left just
         // enough for its right edge to reach 99% of the monitor width.
         let widths = pixel_widths(OUTPUT.width, &[25, 98]);
-        let moved = adjust_scroll(OUTPUT.width, &widths, 1, scroll);
+        let moved = adjust_scroll(OUTPUT.width, &widths, 1, scroll, 0);
         assert_eq!(
             moved,
             i64::from(OUTPUT.width) - inset_for(OUTPUT.width) - 980 - 250
         );
-        let (tiles, _) = scrolling_tiles(OUTPUT, &[25, 98], 1, 2, scroll);
+        let (tiles, _) = scrolling_tiles(OUTPUT, &[25, 98], 1, 2, scroll, 0);
         assert_eq!(tiles[1].x + tiles[1].width, OUTPUT.x + OUTPUT.width - 10);
         // A focused tile left of the 1% margin shifts right to the inset.
-        let shifted = adjust_scroll(OUTPUT.width, &widths, 0, -1000);
+        let shifted = adjust_scroll(OUTPUT.width, &widths, 0, -1000, 0);
         assert_eq!(shifted, inset_for(OUTPUT.width));
     }
 
@@ -426,17 +472,17 @@ mod tests {
         let widths = pixel_widths(OUTPUT.width, &[50, 25, 25]);
         let sum_before: i64 = widths[..1].iter().sum();
         assert_eq!(
-            centered_scroll(OUTPUT.width, &widths, 1).unwrap(),
+            centered_scroll(OUTPUT.width, &widths, 1, 0).unwrap(),
             (i64::from(OUTPUT.width) - widths[1]) / 2 - sum_before
         );
         assert_eq!(
-            right_aligned_scroll(OUTPUT.width, &widths, 1).unwrap(),
+            right_aligned_scroll(OUTPUT.width, &widths, 1, 0).unwrap(),
             i64::from(OUTPUT.width) - inset_for(OUTPUT.width) - widths[1] - sum_before
         );
         // A 98% tile is already full width: center and right both equal the inset.
         let full = pixel_widths(OUTPUT.width, &[98]);
-        assert_eq!(centered_scroll(OUTPUT.width, &full, 0).unwrap(), 10);
-        assert_eq!(right_aligned_scroll(OUTPUT.width, &full, 0).unwrap(), 10);
+        assert_eq!(centered_scroll(OUTPUT.width, &full, 0, 0).unwrap(), 10);
+        assert_eq!(right_aligned_scroll(OUTPUT.width, &full, 0, 0).unwrap(), 10);
     }
 
     #[test]
@@ -458,8 +504,8 @@ mod tests {
 
     #[test]
     fn stacked_windows_share_width_and_fill_height_with_leftover_pixels() {
-        let column = scrolling_tiles(OUTPUT, &[50], 0, 3, inset_for(OUTPUT.width)).0[0];
-        let rows = column.split_vertical(3);
+        let column = scrolling_tiles(OUTPUT, &[50], 0, 3, inset_for(OUTPUT.width), 0).0[0];
+        let rows = column.split_vertical(3, 0);
         assert_eq!(
             rows.iter().map(|tile| tile.height).collect::<Vec<_>>(),
             [267, 267, 266]
@@ -477,7 +523,7 @@ mod tests {
             height: 2,
             ..column
         }
-        .split_vertical(3);
+        .split_vertical(3, 0);
         assert!(tiny.iter().all(|tile| tile.content_size().1 > 0));
     }
 
@@ -488,10 +534,10 @@ mod tests {
             height: 1,
             ..OUTPUT
         };
-        let tile = scrolling_tiles(output, &[1], 0, i32::MAX, inset_for(output.width)).0[0];
+        let tile = scrolling_tiles(output, &[1], 0, i32::MAX, inset_for(output.width), 0).0[0];
         assert_eq!(tile.content_size(), (1, 1));
         assert!(
-            scrolling_tiles(OutputGeometry::default(), &[50], 0, 2, 0)
+            scrolling_tiles(OutputGeometry::default(), &[50], 0, 2, 0, 0)
                 .0
                 .is_empty()
         );
@@ -501,9 +547,93 @@ mod tests {
             ..OUTPUT
         };
         assert!(
-            scrolling_tiles(output, &[98], 0, 0, inset_for(output.width)).0[0]
+            scrolling_tiles(output, &[98], 0, 0, inset_for(output.width), 0).0[0]
                 .intersection(output)
                 .is_some()
         );
+    }
+
+    #[test]
+    fn outer_gaps_inset_the_tiling_area_and_clamp_to_empty() {
+        assert_eq!(outer_area(OUTPUT, 0), OUTPUT);
+        let area = outer_area(OUTPUT, 8);
+        assert_eq!(
+            area,
+            OutputGeometry {
+                x: OUTPUT.x + 8,
+                y: OUTPUT.y + 8,
+                width: OUTPUT.width - 16,
+                height: OUTPUT.height - 16,
+            }
+        );
+        // Oversized gaps never invert the area; layout then hides tiles.
+        let empty = outer_area(OUTPUT, 10_000);
+        assert_eq!((empty.width, empty.height), (0, 0));
+        assert!(scrolling_tiles(empty, &[50], 0, 2, 0, 0).0.is_empty());
+        // Negative values are treated as zero.
+        assert_eq!(outer_area(OUTPUT, -5), OUTPUT);
+    }
+
+    #[test]
+    fn inner_gaps_separate_columns_without_resizing_them() {
+        let gap = 10;
+        let (tiles, scroll) =
+            scrolling_tiles(OUTPUT, &[25, 25], 0, 2, inset_for(OUTPUT.width), gap);
+        assert_eq!(scroll, inset_for(OUTPUT.width));
+        assert_eq!(tiles[0].width, 250);
+        assert_eq!(tiles[1].width, 250);
+        assert_eq!(i64::from(tiles[1].x - (tiles[0].x + tiles[0].width)), gap);
+        // Focusing the second tile keeps the strip when it already fits.
+        let (_, kept) = scrolling_tiles(OUTPUT, &[25, 25], 1, 2, scroll, gap);
+        assert_eq!(kept, scroll);
+        // Scroll offsets include gaps: the focused tile starts after one width
+        // plus one gap.
+        let widths = pixel_widths(OUTPUT.width, &[25, 98]);
+        let moved = adjust_scroll(OUTPUT.width, &widths, 1, scroll, gap);
+        assert_eq!(
+            moved,
+            i64::from(OUTPUT.width) - inset_for(OUTPUT.width) - 980 - (250 + gap)
+        );
+        let (tiles, _) = scrolling_tiles(OUTPUT, &[25, 98], 1, 2, scroll, gap);
+        assert_eq!(tiles[1].x + tiles[1].width, OUTPUT.x + OUTPUT.width - 10);
+        assert_eq!(
+            centered_scroll(OUTPUT.width, &widths, 1, gap).unwrap(),
+            (i64::from(OUTPUT.width) - widths[1]) / 2 - (250 + gap)
+        );
+        assert_eq!(
+            right_aligned_scroll(OUTPUT.width, &widths, 1, gap).unwrap(),
+            i64::from(OUTPUT.width) - inset_for(OUTPUT.width) - widths[1] - (250 + gap)
+        );
+    }
+
+    #[test]
+    fn inner_gaps_split_stack_height_and_keep_rows_positive() {
+        let column = scrolling_tiles(OUTPUT, &[50], 0, 2, inset_for(OUTPUT.width), 0).0[0];
+        let rows = column.split_vertical(2, 10);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].height + 10 + rows[1].height, OUTPUT.height);
+        assert_eq!(rows[1].y, rows[0].y + rows[0].height + 10);
+        assert_eq!((rows[0].x, rows[0].width), (column.x, column.width));
+        // Leftover pixels still distribute top to bottom after gaps are removed.
+        let tall = TileGeometry {
+            height: 803,
+            ..column
+        }
+        .split_vertical(3, 2);
+        assert_eq!(
+            tall.iter().map(|tile| tile.height).collect::<Vec<_>>(),
+            [267, 266, 266]
+        );
+        for pair in tall.windows(2) {
+            assert_eq!(pair[0].y + pair[0].height + 2, pair[1].y);
+        }
+        // Tiny heights keep positive content and let the overflow clip.
+        let tiny = TileGeometry {
+            height: 5,
+            ..column
+        }
+        .split_vertical(3, 4);
+        assert!(tiny.iter().all(|tile| tile.content_size().1 > 0));
+        assert_eq!(tiny[1].y - (tiny[0].y + tiny[0].height), 4);
     }
 }

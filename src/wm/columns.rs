@@ -10,7 +10,9 @@ use crate::protocol::river_window_v1::RiverWindowV1;
 
 use super::{
     WindowManager,
-    layout::{centered_scroll, inset_for, pixel_widths, right_aligned_scroll, scrolling_tiles},
+    layout::{
+        centered_scroll, inset_for, outer_area, pixel_widths, right_aligned_scroll, scrolling_tiles,
+    },
     preselection::Preselection,
     window::Window,
 };
@@ -464,9 +466,13 @@ impl WindowManager {
         }
         let output_ids: Vec<_> = self.outputs.keys().cloned().collect();
         for id in output_ids {
-            let (geometry, border_width) = {
+            let (geometry, border_width, inner_gap) = {
                 let output = &self.outputs[&id];
-                (output.work_area(), self.config.border.width)
+                (
+                    outer_area(output.work_area(), self.config.gaps.outer),
+                    self.config.border.width,
+                    i64::from(self.config.gaps.inner.max(0)),
+                )
             };
             if geometry.width <= 0 || geometry.height <= 0 {
                 continue;
@@ -517,7 +523,7 @@ impl WindowManager {
                     .unwrap_or(0);
                 let prev = prev_scroll.unwrap_or_else(|| inset_for(geometry.width));
                 let (tiles, scroll) =
-                    scrolling_tiles(geometry, &widths, focused, border_width, prev);
+                    scrolling_tiles(geometry, &widths, focused, border_width, prev, inner_gap);
                 {
                     let workspace = self.outputs.get_mut(&id).unwrap();
                     let entry = workspace
@@ -534,7 +540,7 @@ impl WindowManager {
                             self.windows[index].tile = (index == selected).then_some(tile);
                         }
                     } else {
-                        let tiles = tile.split_vertical(rows.len());
+                        let tiles = tile.split_vertical(rows.len(), inner_gap);
                         for (index, tile) in rows.into_iter().zip(tiles) {
                             self.windows[index].tile = Some(tile);
                         }
@@ -544,15 +550,22 @@ impl WindowManager {
         }
     }
 
-    fn focused_scroll_target(&mut self, compute: impl FnOnce(i32, &[i64], usize) -> Option<i64>) {
+    fn focused_scroll_target(
+        &mut self,
+        compute: impl FnOnce(i32, &[i64], usize, i64) -> Option<i64>,
+    ) {
         let Some(output_id) = self.active_output.clone() else {
             return;
         };
-        let (geometry, workspace_id) = {
+        let (geometry, workspace_id, inner_gap) = {
             let Some(output) = self.outputs.get(&output_id) else {
                 return;
             };
-            (output.geometry, output.workspaces.current().id)
+            (
+                outer_area(output.work_area(), self.config.gaps.outer),
+                output.workspaces.current().id,
+                i64::from(self.config.gaps.inner.max(0)),
+            )
         };
         if geometry.width <= 0 {
             return;
@@ -577,7 +590,7 @@ impl WindowManager {
             .unwrap_or(0);
         let widths = self.workspace_widths(&columns);
         let widths_px = pixel_widths(geometry.width, &widths);
-        let Some(scroll) = compute(geometry.width, &widths_px, focused) else {
+        let Some(scroll) = compute(geometry.width, &widths_px, focused, inner_gap) else {
             return;
         };
         let output = self.outputs.get_mut(&output_id).unwrap();
@@ -585,12 +598,14 @@ impl WindowManager {
     }
 
     pub(super) fn center_window(&mut self) {
-        self.focused_scroll_target(|width, sizes, focused| centered_scroll(width, sizes, focused));
+        self.focused_scroll_target(|width, sizes, focused, gap| {
+            centered_scroll(width, sizes, focused, gap)
+        });
     }
 
     pub(super) fn align_window_right(&mut self) {
-        self.focused_scroll_target(|width, sizes, focused| {
-            right_aligned_scroll(width, sizes, focused)
+        self.focused_scroll_target(|width, sizes, focused, gap| {
+            right_aligned_scroll(width, sizes, focused, gap)
         });
     }
 

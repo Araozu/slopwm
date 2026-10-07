@@ -26,6 +26,7 @@ pub(crate) struct Config {
     pub(crate) keyboard: KeyboardConfig,
     pub(crate) animations: AnimationConfig,
     pub(crate) border: BorderConfig,
+    pub(crate) gaps: GapsConfig,
     pub(crate) scrolling: ScrollingConfig,
     pub(crate) monitors: BTreeMap<String, MonitorConfig>,
 }
@@ -111,6 +112,19 @@ pub(crate) enum GrowthDirection {
 #[serde(deny_unknown_fields)]
 pub(crate) struct MonitorConfig {
     pub(crate) growth_direction: GrowthDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct GapsConfig {
+    pub(crate) inner: i32,
+    pub(crate) outer: i32,
+}
+
+impl Default for GapsConfig {
+    fn default() -> Self {
+        Self { inner: 0, outer: 0 }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -236,6 +250,7 @@ impl Default for Config {
             keyboard: KeyboardConfig::default(),
             animations: AnimationConfig::default(),
             border: BorderConfig::default(),
+            gaps: GapsConfig::default(),
             scrolling: ScrollingConfig::default(),
             monitors: BTreeMap::new(),
         }
@@ -263,6 +278,8 @@ struct FileConfig {
     animations: AnimationConfig,
     #[serde(default)]
     border: FileBorder,
+    #[serde(default)]
+    gaps: GapsConfig,
     #[serde(default)]
     scrolling: ScrollingConfig,
     #[serde(default)]
@@ -336,6 +353,12 @@ impl Config {
         if file.border.width < 0 {
             return Err(ConfigError("border.width must be nonnegative".into()));
         }
+        if file.gaps.inner < 0 {
+            return Err(ConfigError("gaps.inner must be nonnegative".into()));
+        }
+        if file.gaps.outer < 0 {
+            return Err(ConfigError("gaps.outer must be nonnegative".into()));
+        }
         if file.monitors.keys().any(|name| name.trim().is_empty()) {
             return Err(ConfigError("monitor names must not be empty".into()));
         }
@@ -349,6 +372,7 @@ impl Config {
                 unfocused_color: parse_color(&file.border.unfocused_color)
                     .map_err(|error| ConfigError(format!("border.unfocused_color: {error}")))?,
             },
+            gaps: file.gaps,
             scrolling: file.scrolling,
             monitors: file.monitors,
             ..Self::default()
@@ -713,6 +737,31 @@ mod tests {
     }
 
     #[test]
+    fn gaps_use_defaults_and_allow_independent_overrides() {
+        let defaults = Config::default();
+        assert_eq!(defaults.gaps.inner, 0);
+        assert_eq!(defaults.gaps.outer, 0);
+        assert_eq!(Config::parse("gaps: {}").unwrap().gaps, defaults.gaps);
+        assert_eq!(Config::parse("{}").unwrap().gaps, defaults.gaps);
+        let config = Config::parse("gaps: {inner: 8}").unwrap();
+        assert_eq!(config.gaps.inner, 8);
+        assert_eq!(config.gaps.outer, 0);
+        assert_eq!(config.keybindings, defaults.keybindings);
+        let config = Config::parse("gaps: {outer: 12}").unwrap();
+        assert_eq!(config.gaps.inner, 0);
+        assert_eq!(config.gaps.outer, 12);
+        let config = Config::parse("gaps: {inner: 8, outer: 12}").unwrap();
+        assert_eq!(config.gaps.inner, 8);
+        assert_eq!(config.gaps.outer, 12);
+        assert_eq!(
+            Config::parse(include_str!("../config.example.yaml"))
+                .unwrap()
+                .gaps,
+            defaults.gaps
+        );
+    }
+
+    #[test]
     fn layout_and_width_actions_reject_invalid_configurations() {
         for source in [
             "border: {width: -1}",
@@ -722,6 +771,12 @@ mod tests {
             "border: {unfocused_color: '#gggggg'}",
             "border: {unfocused_color: '#ffffff', typo: 1}",
             "border: {color: '#ffffff', typo: 1}",
+            "gaps: {inner: -1}",
+            "gaps: {outer: -1}",
+            "gaps: {inner: 1.5}",
+            "gaps: {outer: null}",
+            "gaps: {inner: 8, typo: 1}",
+            "gaps: {typo: 1}",
             "scrolling: {default_width_percent: 0}",
             "scrolling: {default_width_percent: 99}",
             "scrolling: {growth_direction: up}",

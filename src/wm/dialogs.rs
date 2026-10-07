@@ -6,7 +6,7 @@ use crate::protocol::river_window_v1::{Edges, RiverWindowV1};
 
 use super::{
     WindowManager,
-    layout::{TileGeometry, TileWidth, dialog_tile},
+    layout::{TileGeometry, TileWidth, dialog_tile, outer_area},
     window::Window,
 };
 
@@ -169,7 +169,10 @@ impl WindowManager {
             .parent
             .as_ref()
             .and_then(|parent| self.windows.iter().find(|window| &window.proxy == parent))?;
-        let area = self.outputs.get(window.output.as_ref()?)?.work_area();
+        let area = outer_area(
+            self.outputs.get(window.output.as_ref()?)?.work_area(),
+            self.config.gaps.outer,
+        );
         let parent_tile = if parent.fullscreen {
             let geometry = self.outputs.get(parent.output.as_ref()?)?.geometry;
             Some(TileGeometry {

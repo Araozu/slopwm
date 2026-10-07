@@ -9,7 +9,7 @@ use crate::protocol::river_window_v1::RiverWindowV1;
 
 use super::{
     WindowManager,
-    layout::{TileGeometry, inset_for, pixel_widths, place_tiles},
+    layout::{TileGeometry, inset_for, outer_area, pixel_widths, place_tiles},
     output::OutputGeometry,
 };
 
@@ -79,7 +79,7 @@ impl WindowManager {
         if selected_output.workspaces.current().id != selection.workspace {
             return None;
         }
-        let mut output = selected_output.work_area();
+        let mut output = outer_area(selected_output.work_area(), self.config.gaps.outer);
         let tile = if let Some(anchor) = &selection.window {
             let window = self.windows.iter().find(|window| &window.proxy == anchor)?;
             if window.fullscreen {
@@ -97,7 +97,14 @@ impl WindowManager {
         } else {
             // An empty output has no anchor yet; preview its initial tile.
             let widths = pixel_widths(output.width, &[self.config.scrolling.default_width_percent]);
-            *place_tiles(output, &widths, inset_for(output.width), 0).first()?
+            *place_tiles(
+                output,
+                &widths,
+                inset_for(output.width),
+                0,
+                i64::from(self.config.gaps.inner.max(0)),
+            )
+            .first()?
         };
         Preview::for_tile(tile, output, selection.direction)
     }

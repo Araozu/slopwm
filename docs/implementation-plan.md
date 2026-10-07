@@ -2,8 +2,8 @@
 
 The tinyrwm-derived implementation uses scrolling columns with optional vertical
 stacks, released River v0.4.8 protocols, and a dependency lockfile. YAML configures
-keyboard actions, global keyboard repeat rate/delay, borders, initial widths,
-and per-monitor growth directions.
+keyboard actions, global keyboard repeat rate/delay, borders, gaps, initial
+widths, and per-monitor growth directions.
 
 ## Module boundaries
 
@@ -25,7 +25,7 @@ and per-monitor growth directions.
 | `src/wm/layer.rs` | Layer-shell enablement, default output, focus exclusivity, and event dispatch |
 | `src/wm/columns.rs` | Column ordering, stack/unstack, focus navigation, column moves, scroll/center/right policy, and layout policy |
 | `src/wm/workspaces.rs` | Per-output dynamic workspace lifecycle, remembered focus/scroll, navigation, and window moves |
-| `src/wm/layout.rs` | Pure scrolling geometry, minimal-scroll/center/right math, borders, width state, and vertical splitting |
+| `src/wm/layout.rs` | Pure scrolling geometry, minimal-scroll/center/right math, borders, gaps, width state, and vertical splitting |
 | `src/wm/animation.rs` | Pure tile interpolation, interrupted transitions, and displayed geometry |
 | `src/wm/preselection.rs` | One-shot spawn targets, cancellation, and clipped directional preview geometry |
 | `src/wm/overlay.rs` | Input-transparent River shell surface, shared-memory drawing, and synchronized commits |

@@ -76,7 +76,7 @@ awww img -o DP-1 ~/Pictures/wallpaper.jpeg
 
 If `DP-1` is rejected, `awww query` (or `wlr-randr`) shows the valid names;
 nested or headless sessions often use names like `WL-1` instead. The wallpaper
-is visible in the tile margins and peeks,
+is visible in gaps, tile margins and peeks,
 or fully on an empty workspace. Top/bottom panels that reserve exclusive zones
 reduce the vertical tiling area, including stacks, soft fullscreen, and spawn
 previews. Removing a panel restores the height. Horizontal column widths and
@@ -122,6 +122,7 @@ cp config.example.yaml "${XDG_CONFIG_HOME:-$HOME/.config}/slopwm/config.yml"
 keyboard: {repeat_rate: 40, repeat_delay: 400}
 animations: {enabled: true, duration_ms: 200, frame_interval_ms: 16}
 border: {width: 2, color: "#ffffff", unfocused_color: "#808080ff"}
+gaps: {inner: 0, outer: 0}
 scrolling: {growth_direction: left, default_width_percent: 50}
 monitors:
   DP-1: {growth_direction: right}
@@ -198,6 +199,14 @@ parent's displayed tile; their own content size changes apply immediately.
 color; every other visible tile uses the unfocused color. Border space is
 included in tile dimensions. Borders shrink on tiny tiles so content dimensions
 remain positive, and River suppresses them in true fullscreen.
+
+`gaps.inner` is nonnegative logical pixels between adjacent columns and stacked
+rows (default `0`); tile widths are unchanged and gaps count toward scrolling,
+centering, and right alignment. `gaps.outer` is nonnegative logical pixels
+around the tiling area on every side, inside panels (default `0`); it shrinks
+the area used for widths, scrolling, dialogs, and the spawn preview. Oversized
+gaps hide tiles until gaps shrink. True fullscreen covers the whole monitor and
+bypasses gaps entirely.
 
 `scrolling.default_width_percent` sets new tile widths, from `1` through `98`.
 `scrolling.growth_direction` accepts `left` (the default) or `right`. The
@@ -316,9 +325,10 @@ Configuration is loaded at startup. Press **Super + Shift + r**, use a
 The entire file is validated before any changes are applied. Invalid or missing
 files leave the last working configuration and bindings in place and print an
 error to stderr. Successful reloads update bindings on every seat, borders,
-animations, keyboard repeat on current and future keyboards, and settings for future window
-insertion. Existing widths, stacks, workspace selections, and scroll offsets
-are preserved; normal minimal scrolling still applies if geometry requires it.
+gaps, animations, keyboard repeat on current and future keyboards, and settings
+for future window insertion. Existing widths, stacks, workspace selections,
+and scroll offsets are preserved; normal minimal scrolling still applies if
+geometry requires it.
 If your replacement binding map omits `reload-config`, SIGHUP remains available.
 
 The `quit` action, **SIGTERM**, and **SIGINT** stop only slopwm, completing

@@ -50,6 +50,19 @@ border:
   # window uses `color`; every other visible tile uses this color.
   unfocused_color: "#808080ff"
 
+# Window gaps in logical pixels. Omitting this section or any field uses its default.
+# Gaps show the wallpaper behind them; true fullscreen bypasses gaps entirely.
+gaps:
+  # Nonnegative integer between adjacent columns and stacked rows. Default: 0.
+  # Tile widths are unchanged; gaps add spacing between tiles and count toward
+  # scrolling, centering, and right alignment.
+  inner: 0
+
+  # Nonnegative integer around the tiling area on every side, inside panels.
+  # Default: 0. Shrinks the area used for widths, scrolling, dialogs, and the
+  # spawn preview. Oversized gaps hide tiles until gaps shrink.
+  outer: 0
+
 # Scrolling layout. Omitting this section or either field uses its default.
 scrolling:
   # left | right: side of the focused column where new windows are inserted.
