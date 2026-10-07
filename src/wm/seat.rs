@@ -60,7 +60,7 @@ impl Seat {
                     }
                 }
                 Action::FocusNext | Action::FocusPrevious => {
-                    wm.cycle_window(matches!(action, Action::FocusPrevious));
+                    wm.focus_column(matches!(action, Action::FocusPrevious));
                 }
                 Action::FocusUp | Action::FocusDown => {
                     wm.focus_vertical(matches!(action, Action::FocusUp));
@@ -77,7 +77,10 @@ impl Seat {
                     }
                 }
                 Action::FocusOutputNext | Action::FocusOutputPrevious => {
-                    wm.cycle_output(matches!(action, Action::FocusOutputPrevious));
+                    wm.focus_output(matches!(action, Action::FocusOutputPrevious));
+                }
+                Action::MoveToOutputNext | Action::MoveToOutputPrevious => {
+                    wm.move_to_output(matches!(action, Action::MoveToOutputPrevious));
                 }
                 Action::FocusWorkspaceUp | Action::FocusWorkspaceDown => {
                     wm.focus_workspace(matches!(action, Action::FocusWorkspaceUp));

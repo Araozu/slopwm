@@ -23,6 +23,8 @@ pub(crate) enum Action {
     Unstack,
     FocusOutputNext,
     FocusOutputPrevious,
+    MoveToOutputNext,
+    MoveToOutputPrevious,
     FocusWorkspaceUp,
     FocusWorkspaceDown,
     MoveToWorkspaceUp,

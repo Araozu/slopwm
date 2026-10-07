@@ -201,7 +201,7 @@ impl WindowManager {
         })
     }
 
-    pub(super) fn cycle_window(&mut self, previous: bool) {
+    pub(super) fn focus_column(&mut self, previous: bool) {
         let Some(FocusedColumn {
             columns,
             column,
@@ -210,7 +210,9 @@ impl WindowManager {
         else {
             return;
         };
-        let next = cycle_index(column, columns.len(), previous);
+        let Some(next) = adjacent_index(column, columns.len(), previous) else {
+            return;
+        };
         let index = columns[next][row.min(columns[next].len() - 1)];
         self.select_window(&self.windows[index].proxy.clone());
     }
@@ -225,20 +227,51 @@ impl WindowManager {
             return;
         };
         let rows = &columns[column];
-        let index = rows[cycle_index(row, rows.len(), up)];
+        let Some(next) = adjacent_index(row, rows.len(), up) else {
+            return;
+        };
+        let index = rows[next];
         self.select_window(&self.windows[index].proxy.clone());
     }
 
-    pub(super) fn cycle_output(&mut self, previous: bool) {
-        let outputs = self.ordered_outputs();
-        if outputs.is_empty() {
-            return;
+    pub(super) fn focus_output(&mut self, previous: bool) {
+        if let Some(output) = self.adjacent_output(previous) {
+            self.active_output = Some(output);
         }
+    }
+
+    fn adjacent_output(&self, previous: bool) -> Option<ObjectId> {
+        let outputs = self.ordered_outputs();
         let current = outputs
             .iter()
-            .position(|id| Some(id) == self.active_output.as_ref())
-            .unwrap_or(0);
-        self.active_output = Some(outputs[cycle_index(current, outputs.len(), previous)].clone());
+            .position(|id| Some(id) == self.active_output.as_ref())?;
+        let next = adjacent_index(current, outputs.len(), previous)?;
+        Some(outputs[next].clone())
+    }
+
+    pub(super) fn move_to_output(&mut self, previous: bool) {
+        let Some(target) = self.adjacent_output(previous) else {
+            return;
+        };
+        let Some(FocusedColumn {
+            columns,
+            column,
+            row,
+        }) = self.focused_column()
+        else {
+            return;
+        };
+        let mut window = self.windows.remove(columns[column][row]).unwrap();
+        // Detach only the focused row, preserving the source stack and width.
+        window.column = self.allocate_column();
+        window.workspace = self.outputs[&target].workspaces.current().id;
+        window.fullscreen = false;
+        window.fullscreen_requested = None;
+        window.tile_width.soft_fullscreen = false;
+        window.soft_fullscreen_requested = None;
+        self.active_output = Some(target.clone());
+        self.insert_window(window, target);
+        self.reconcile_workspaces();
     }
 
     pub(super) fn stack_window(&mut self, previous: bool) {
@@ -389,12 +422,13 @@ fn insertion_index(focused: Option<usize>, len: usize, direction: GrowthDirectio
     })
 }
 
-fn cycle_index(current: usize, len: usize, previous: bool) -> usize {
-    if previous {
-        (current + len - 1) % len
+fn adjacent_index(current: usize, len: usize, previous: bool) -> Option<usize> {
+    let next = if previous {
+        current.checked_sub(1)
     } else {
-        (current + 1) % len
-    }
+        current.checked_add(1)
+    };
+    next.filter(|next| current < len && *next < len)
 }
 
 #[cfg(test)]
@@ -402,16 +436,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn growth_inserts_beside_focus_and_navigation_wraps_in_spatial_order() {
+    fn growth_inserts_beside_focus() {
         let mut strip = vec!["old-left", "focused", "old-right"];
         strip.insert(
             insertion_index(Some(1), strip.len(), GrowthDirection::Left),
             "new",
         );
         assert_eq!(strip, ["old-left", "new", "focused", "old-right"]);
-        assert_eq!(cycle_index(0, strip.len(), true), 3);
-        assert_eq!(cycle_index(3, strip.len(), false), 0);
         assert_eq!(insertion_index(Some(1), 3, GrowthDirection::Right), 2);
         assert_eq!(insertion_index(None, 0, GrowthDirection::Left), 0);
+    }
+
+    #[test]
+    fn focus_navigation_stops_at_edges_and_visits_every_neighbor() {
+        for len in 0_usize..6 {
+            assert_eq!(adjacent_index(0, len, true), None);
+            assert_eq!(adjacent_index(len.saturating_sub(1), len, false), None);
+            for current in 1..len {
+                assert_eq!(adjacent_index(current, len, true), Some(current - 1));
+                assert_eq!(adjacent_index(current - 1, len, false), Some(current));
+            }
+        }
     }
 }

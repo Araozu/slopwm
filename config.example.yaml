@@ -57,6 +57,9 @@ monitors: {}
 # Do not repeat a modifier or bind the same shortcut through different aliases.
 #
 # Focus never follows the mouse. Clicking a window focuses and raises it.
+# All focus navigation stops at the edges; nothing wraps around.
+# Super + arrows: windows; Super + Alt + arrows: screens/workspaces.
+# Add Shift to Super + Alt + arrows to move the focused window and follow it.
 keybindings:
   # Start a terminal. spawn takes [executable, argument, ...].
   # Arguments run directly, with no shell expansion; quote arguments with spaces.
@@ -67,11 +70,11 @@ keybindings:
   "Super+q": close
 
   # Focus columns in physical left-to-right order in the active workspace.
-  # Both directions wrap at the ends and preserve the selected row when possible.
-  "Super+n": focus-next
-  "Super+p": focus-previous
+  # Stop at either end and preserve the selected row when possible.
+  "Super+Right": focus-next
+  "Super+Left": focus-previous
 
-  # Focus the row above/below in the current column, wrapping at either end.
+  # Focus the row above/below in the current column, stopping at the top/bottom.
   "Super+Up": focus-up
   "Super+Down": focus-down
 
@@ -84,10 +87,17 @@ keybindings:
   # Give the focused window its own column on the configured growth side.
   "Super+u": unstack
 
-  # Focus the next/previous monitor by River's output positions, wrapping.
+  # Focus the next/previous monitor by River's output positions, stopping at ends.
   # Each monitor remembers its selected tile; empty monitors can be focused too.
-  "Super+m": focus-output-next
-  "Super+Shift+m": focus-output-previous
+  "Super+Alt+Right": focus-output-next
+  "Super+Alt+Left": focus-output-previous
+
+  # Move the focused window to the next/previous monitor and follow it.
+  # Uses that monitor's selected workspace and configured growth side.
+  # A stacked row becomes its own column; its regular width percentage is kept.
+  # Moves leave fullscreen and stop at the first/last monitor.
+  "Super+Alt+Shift+Right": move-to-output-next
+  "Super+Alt+Shift+Left": move-to-output-previous
 
   # Switch workspaces on the active monitor, stopping at the top/bottom.
   # Each monitor has one empty workspace below its occupied workspaces.
@@ -114,6 +124,7 @@ keybindings:
   # Width is clamped to 1–98%; stacked rows resize together. Leaves fullscreen.
   "Super+equal": {change-width-percent: 10}
   "Super+minus": {change-width-percent: -10}
+
   # Select the side of the focused tile for the next regular app window.
   # A translucent arrow previews the selected direction; repeat to clear it.
   "Super+Ctrl+Left": preselect-left

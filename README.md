@@ -71,14 +71,17 @@ keybindings:
   "Super+Return": {spawn: [foot]}
   "Super+d": {spawn: [fuzzel]}
   "Super+q": close
-  "Super+n": focus-next
-  "Super+p": focus-previous
+  "Super+Right": focus-next
+  "Super+Left": focus-previous
   "Super+Up": focus-up
   "Super+Down": focus-down
   "Super+Shift+Right": stack-next
   "Super+Shift+Left": stack-previous
   "Super+u": unstack
-  "Super+m": focus-output-next
+  "Super+Alt+Right": focus-output-next
+  "Super+Alt+Left": focus-output-previous
+  "Super+Alt+Shift+Right": move-to-output-next
+  "Super+Alt+Shift+Left": move-to-output-previous
   "Super+Alt+Up": focus-workspace-up
   "Super+Alt+Down": focus-workspace-down
   "Super+Alt+Shift+Up": move-to-workspace-up
@@ -112,10 +115,19 @@ or `HDMI-A-1`. Unlisted monitors use the global setting. Output names require
 
 Actions include `close`, `focus-next`, `focus-previous`, `focus-output-next`,
 `focus-output-previous`, `toggle-soft-fullscreen`, `toggle-fullscreen`, and
-`exit` (which exits the entire Wayland session). Column focus cycles in physical
-left-to-right order within the active workspace, wrapping at either end. Monitor
-focus cycles by River's output positions and remembers each monitor's selected
-tile, including when an empty monitor is selected.
+`exit` (which exits the entire Wayland session). Column focus moves in physical
+left-to-right order within the active workspace. Monitor focus follows River's
+output positions and remembers each monitor's selected tile, including when an
+empty monitor is selected. All focus navigation stops at the ends; windows,
+stacked rows, monitors, and workspaces never wrap around.
+
+`move-to-output-next` / `move-to-output-previous` move the focused window to the
+next / previous monitor and follow it, stopping at either end. The window gets
+its own column in that monitor's selected workspace, on its configured growth
+side. Remaining stacked rows stay together on the source monitor. The move
+leaves fullscreen and keeps the regular width percentage, scaled to the target
+monitor's width. Empty workspaces are pruned and a new trailing empty workspace
+is created as needed on both monitors.
 
 `focus-workspace-up` / `focus-workspace-down` select the workspace above / below
 on the active monitor. `move-to-workspace-up` / `move-to-workspace-down` move the
@@ -129,7 +141,7 @@ window and fullscreen state; other monitors keep their selected workspaces.
 `stack-next` / `stack-previous` move the focused window into the column on its
 right / left, adding it below that column's windows. The resulting stack shares
 the target column's width and divides its height equally. At the strip's edge,
-stacking toward a missing neighbor does nothing. `focus-up` / `focus-down` cycle
+stacking toward a missing neighbor does nothing. `focus-up` / `focus-down` move
 within the column; `focus-next` / `focus-previous` switch columns while preserving
 the row where possible. `unstack` restores the focused window to its own column
 on the configured growth side. New windows get their own column unless a
@@ -155,8 +167,8 @@ with a pending selection returns to its workspace and monitor.
 The next new window without a parent consumes it and receives focus, whether
 launched by a spawn binding or another program; dialogs do not consume it.
 Press the same direction on the same tile again, or use `preselect-cancel`, to
-clear it. Closing the target tile, moving it to another workspace, removing its
-workspace or monitor, or locking the session also clears it. Without a
+clear it. Closing the target tile, moving it to another workspace or monitor,
+removing its workspace or monitor, or locking the session also clears it. Without a
 selection, normal monitor growth direction applies.
 
 Soft fullscreen temporarily hides sibling rows and gives the selected window
@@ -210,11 +222,12 @@ river -c './target/release/slopwm --config /absolute/path/config.yaml'
 | --- | --- |
 | Super + Space | Spawn `foot` |
 | Super + q | Ask the focused window to close |
-| Super + n / Super + p | Focus the next / previous column |
+| Super + Right / Left | Focus the column to the right / left |
 | Super + Up / Super + Down | Focus the row above / below within a column |
 | Super + Shift + Right / Left | Stack the focused window into the right / left column |
 | Super + u | Unstack the focused window into its own column |
-| Super + m / Super + Shift + m | Focus the next / previous monitor |
+| Super + Alt + Right / Left | Focus the next / previous monitor |
+| Super + Alt + Shift + Right / Left | Move the focused window to the next / previous monitor and follow it |
 | Super + Alt + Up / Down | Focus the workspace above / below on this monitor |
 | Super + Alt + Shift + Up / Down | Move the focused window to the workspace above / below and follow it |
 | Super + f | Toggle soft fullscreen (98% width) |
@@ -224,6 +237,10 @@ river -c './target/release/slopwm --config /absolute/path/config.yaml'
 | Super + Ctrl + Escape | Cancel spawn preselection |
 | Super + Escape | Exit the entire Wayland session |
 | Click a window | Focus and raise it |
+
+All focus shortcuts stop at the edges. Super + arrows selects windows;
+Super + Alt + arrows selects monitors horizontally and workspaces vertically.
+Adding Shift to Super + Alt + arrows moves the focused window and follows it.
 
 See [development notes](docs/README.md) for architecture, protocol rules, the
 reference walkthrough, and planned improvements. [Protocol provenance](protocol/README.md)
