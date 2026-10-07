@@ -20,6 +20,8 @@ keyboard actions, borders, initial widths, and per-monitor growth directions.
 | `src/wm/bindings.rs` | Configured keyboard bindings, binding lifecycle, and event dispatch |
 | `src/wm/columns.rs` | Column ordering, stack/unstack, focus navigation, and layout policy |
 | `src/wm/layout.rs` | Pure scrolling geometry, borders, width state, and vertical splitting |
+| `src/wm/preselection.rs` | One-shot spawn targets, cancellation, and clipped directional preview geometry |
+| `src/wm/overlay.rs` | Input-transparent River shell surface, shared-memory drawing, and synchronized commits |
 | `protocol/*.xml` | Reviewed protocol definitions with their original notices |
 
 Each object's dispatch implementation lives beside its state and behavior.
@@ -56,12 +58,14 @@ manage/render rules.
    monitor placement, monitor-switching bindings, and recovery after output
    removal are present. Fullscreen/maximize capabilities match implemented
    behavior. Application dimensions are confirmed separately and clipped to
-   allocations. Parent relationships remain future work.
+   allocations. Parent metadata prevents dialogs from consuming a pending spawn
+   selection; general dialog placement remains future work.
 4. **Scrolling layout.** Stable-width columns grow left by default, with
    per-monitor overrides. Stack/unstack actions support vertical rows. The
    focused column keeps a 1% left inset; soft fullscreen occupies 98% width and
    full height, while true fullscreen delegates to River. Workspace policy
-   remains future work.
+   remains future work. Direction preselection inserts the next regular window
+   beside a column or row, with a manager-owned shell surface marking the side.
 5. **Make daily operation predictable.** Add useful diagnostics, configuration
    reload through `manage_dirty()`, lock-aware bindings, and any needed timer/IPC
    integration. Gate optional protocol extensions by negotiated versions.
@@ -88,6 +92,11 @@ Use a controlled River session to check behavior beyond compilation:
   manager consumes returned dimensions and later render-only sequences.
 - Stack/unstack windows, focus rows, toggle soft fullscreen, and close a row;
   verify height restoration, stable widths, and cleaned-up focus references.
+- Preselect all four spawn directions, spawn multiple windows, and verify only
+  the first regular window consumes the choice. Check repeat-to-cancel, explicit
+  cancellation, dialogs, target closure, output removal, and fullscreen previews.
+- Click and type through the preview; verify it never receives pointer or
+  keyboard focus and disappears with the new tile in a completed render sequence.
 - Move the pointer between windows/outputs; verify keyboard and monitor focus
   stay fixed. Click a visible neighboring tile and check explicit focus.
 - Reconfigure/remove an output and leave fullscreen; verify restored geometry

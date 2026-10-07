@@ -266,6 +266,7 @@ name = "slopwm"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "rustix",
  "serde",
  "serde-saphyr",
  "wayland-backend",

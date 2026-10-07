@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use wayland_client::{
     Connection, Dispatch, Proxy, QueueHandle,
-    protocol::{wl_output, wl_registry},
+    protocol::{wl_compositor, wl_output, wl_registry, wl_shm},
 };
 
 use crate::config::Config;
@@ -20,6 +20,8 @@ use crate::wm::WindowManager;
 pub(crate) struct AppData {
     river_wm: Option<RiverWindowManagerV1>,
     pub(crate) river_xkb: Option<RiverXkbBindingsV1>,
+    pub(crate) compositor: Option<wl_compositor::WlCompositor>,
+    pub(crate) shm: Option<wl_shm::WlShm>,
     pub(crate) wm: WindowManager,
     wl_outputs: HashMap<u32, wl_output::WlOutput>,
 }
@@ -42,6 +44,12 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppData {
             const RIVER_WINDOW_MANAGER_V1_MIN_VERSION: u32 = 4;
             const RIVER_XKB_BINDINGS_V1_MIN_VERSION: u32 = 1;
             match interface.as_str() {
+                "wl_compositor" => {
+                    state.compositor = Some(registry.bind(name, version.min(4), qh, ()));
+                }
+                "wl_shm" => {
+                    state.shm = Some(registry.bind(name, 1, qh, ()));
+                }
                 "river_window_manager_v1" => {
                     if version < RIVER_WINDOW_MANAGER_V1_MIN_VERSION {
                         eprintln!(
@@ -127,6 +135,9 @@ pub(crate) fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     if app_data.river_xkb.is_none() {
         eprintln!("river_xkb_bindings_v1 global not found! Is river running with xkb support?");
         std::process::exit(1);
+    }
+    if app_data.compositor.is_none() || app_data.shm.is_none() {
+        return Err("River must expose wl_compositor and wl_shm for spawn previews".into());
     }
 
     loop {

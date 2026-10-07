@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use xkbcommon::xkb;
 
-use crate::action::Action;
+use crate::action::{Action, SpawnDirection};
 use crate::protocol::river_seat_v1::Modifiers;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,6 +107,11 @@ impl Default for Config {
             ("Super+Shift+f", Action::ToggleFullscreen),
             ("Super+equal", Action::ChangeWidthPercent(10)),
             ("Super+minus", Action::ChangeWidthPercent(-10)),
+            ("Super+Ctrl+Left", Action::Preselect(SpawnDirection::Left)),
+            ("Super+Ctrl+Right", Action::Preselect(SpawnDirection::Right)),
+            ("Super+Ctrl+Up", Action::Preselect(SpawnDirection::Up)),
+            ("Super+Ctrl+Down", Action::Preselect(SpawnDirection::Down)),
+            ("Super+Ctrl+Escape", Action::CancelPreselection),
             ("Super+Escape", Action::Exit),
         ]
         .into_iter()
@@ -343,6 +348,11 @@ fn parse_action(action: BindingAction) -> Result<Action, String> {
             "focus-output-previous" => Ok(Action::FocusOutputPrevious),
             "toggle-soft-fullscreen" => Ok(Action::ToggleSoftFullscreen),
             "toggle-fullscreen" => Ok(Action::ToggleFullscreen),
+            "preselect-left" => Ok(Action::Preselect(SpawnDirection::Left)),
+            "preselect-right" => Ok(Action::Preselect(SpawnDirection::Right)),
+            "preselect-up" => Ok(Action::Preselect(SpawnDirection::Up)),
+            "preselect-down" => Ok(Action::Preselect(SpawnDirection::Down)),
+            "preselect-cancel" => Ok(Action::CancelPreselection),
             "exit" => Ok(Action::Exit),
             _ => Err(format!(
                 "unknown action {name:?}; see README.md for supported actions"

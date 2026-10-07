@@ -33,6 +33,11 @@ keybindings:
   "Super+Shift+f": toggle-fullscreen
   "Super+equal": {change-width-percent: 10}
   "Super+minus": {change-width-percent: -10}
+  "Super+Ctrl+Left": preselect-left
+  "Super+Ctrl+Right": preselect-right
+  "Super+Ctrl+Up": preselect-up
+  "Super+Ctrl+Down": preselect-down
+  "Super+Ctrl+Escape": preselect-cancel
   "Super+Escape": exit # Exits the entire Wayland session.
 
 # Other examples to add to the map above:
