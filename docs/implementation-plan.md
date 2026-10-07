@@ -1,37 +1,47 @@
-# Proposed Rust implementation
+# Rust implementation and next steps
 
-The tinyrwm floating implementation is now imported in `src/main.rs`, with
-released River v0.4.8 protocols and a dependency lockfile. The module boundaries
-below describe future refactoring. The final layout style, workspace model, and
-configuration format are still decisions to make.
+The imported tinyrwm floating implementation is split into modules by
+responsibility, with released River v0.4.8 protocols and a dependency lockfile.
+The final layout style, workspace model, and configuration format are still
+decisions to make.
 
 ## Module boundaries
 
 | Path | Responsibility |
 | --- | --- |
-| `src/main.rs` | Parse startup options, connect, report errors, run the event loop |
+| `src/main.rs` | Application entry point |
+| `src/app.rs` | Connection, registry negotiation, startup checks, and event loop |
 | `src/protocol.rs` | Generated River bindings and interface imports |
-| `src/backend.rs` | Registry negotiation, `Dispatch` implementations, translating events and outgoing requests |
-| `src/state.rs` | Window, output, seat, and pending-intent state |
-| `src/policy.rs` | Focus, visibility, application requests, and binding actions |
-| `src/layout.rs` | Geometry calculations using policy state and logical output rectangles |
+| `src/wm/mod.rs` | Manager state, object creation/cleanup, and manage/render sequence orchestration |
+| `src/wm/window.rs` | Window state, geometry, and window-event dispatch |
+| `src/wm/output.rs` | Output state and output-event dispatch |
+| `src/wm/seat.rs` | Seat state, focus policy, action execution, and seat-event dispatch |
+| `src/wm/bindings.rs` | Default bindings, binding creation/destruction, and binding-event dispatch |
+| `src/wm/operation.rs` | Pointer move/resize state, dimension proposals, and render positioning |
 | `protocol/*.xml` | Reviewed protocol definitions with their original notices |
 
-Keep geometry calculations independent of Wayland proxies where practical.
-Centralize requests in the backend so sequence rules can be checked in one
-place. Begin with a single event queue and thread, as in the example; introduce
-an event-loop framework when timers or IPC actually require one.
+Each object's dispatch implementation lives beside its state and behavior.
+Incoming object and binding events accumulate pending state; the manager invokes
+policy and pointer-operation helpers at the manage/render boundaries and sends
+the finish requests. Manager internals stay within the `wm` module. The event
+loop still uses one queue and thread, as in the example.
 
-Store a desired placement and dimensions separately from the application's
-confirmed content dimensions. Track seat focus, hovered window, operation
-origin, cumulative motion, and pending actions explicitly. Keep focus order
-separate from render order if the eventual policy requires them to differ.
+As layout policy grows, extract geometry calculations that can be independent
+of Wayland proxies. Introduce an event-loop framework when timers or IPC
+actually require one.
 
-Represent the current sequence phase explicitly. Validate policy requests
-against the manage phase, and rendering requests against manage/render phases.
-Generate dimension proposals during manage; reconcile geometry against the
-latest confirmed dimensions during render. Complete each sequence even when
-the computed diff is empty.
+Pointer operations retain their starting geometry separately from the
+application's confirmed dimensions. Seat state tracks focus, hovered windows,
+cumulative motion, and pending actions explicitly. Future layout state should
+also store desired placement and dimensions separately from confirmed geometry.
+Keep focus order separate from render order if the eventual policy requires
+them to differ.
+
+The current handlers propose dimensions during manage and reconcile geometry
+against confirmed dimensions during render. Both handlers complete each
+sequence even when no updates are needed. Future backend hardening should
+represent the current phase explicitly and validate requests against the
+manage/render rules.
 
 ## Milestones
 

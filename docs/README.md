@@ -13,8 +13,8 @@ Read in this order:
    object lifetimes, and compatibility requirements.
 3. [Rust demo walkthrough](rust-demo.md): the local tinyrwm reference, dependency
    requirements, code entry points, and gaps to address.
-4. [Implementation plan](implementation-plan.md): a proposed module structure,
-   milestones, and meaningful validation scenarios.
+4. [Implementation plan](implementation-plan.md): current module responsibilities,
+   remaining milestones, and meaningful validation scenarios.
 
 ## References and provenance
 
@@ -37,5 +37,6 @@ still have version 1. Keep the advertised version, bundled XML version, and
 version actually bound by the client distinct. See [compatibility](protocol.md#compatibility).
 
 The architecture summary comes from the article. Detailed implementation notes
-come from the local demo and the bundled released XML. Module boundaries and
-remaining milestones are proposals for slopwm, not requirements imposed by River.
+come from the local demo and the bundled released XML. Module boundaries are
+slopwm's organization choices; remaining milestones are proposals, not
+requirements imposed by River.

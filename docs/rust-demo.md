@@ -6,8 +6,11 @@ the original local reference; slopwm's adaptations are recorded below.
 
 ## Imported baseline
 
-[slopwm's main.rs](../src/main.rs) retains the reference's floating behavior and
-attribution. Its generated bindings now use the released River v0.4.8 XML
+[slopwm's manager](../src/wm/mod.rs) retains the reference's floating behavior and
+attribution, with startup in [app.rs](../src/app.rs) and state/event handlers
+split by responsibility under `src/wm/`. See the
+[module map](implementation-plan.md#module-boundaries) for the current structure.
+Its [generated bindings](../src/protocol.rs) use the released River v0.4.8 XML
 (management version 5 and XKB version 3), and registry binding negotiates the
 server's version up to those maxima while retaining minimum requirements 4/1.
 The new window/output capture-session events are accepted and ignored.
