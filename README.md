@@ -70,6 +70,7 @@ scrolling: {growth_direction: left, default_width_percent: 50}
 monitors:
   DP-1: {growth_direction: right}
 keybindings:
+  "Super+space": {spawn: [foot]}
   "Super+Return": {spawn: [foot]}
   "Super+d": {spawn: [fuzzel]}
   "Super+q": close
@@ -97,7 +98,7 @@ keybindings:
   "Super+Ctrl+Up": preselect-up
   "Super+Ctrl+Down": preselect-down
   "Super+Ctrl+Escape": preselect-cancel
-  "Super+Escape": exit
+  "Super+Shift+Escape": exit
 ```
 
 The `keybindings` map replaces all default keyboard bindings. Omit the map to
@@ -233,6 +234,7 @@ river -c './target/release/slopwm --config /absolute/path/config.yml'
 | Input | Action |
 | --- | --- |
 | Super + Space | Spawn `foot` |
+| Super + Return (Enter) | Spawn `foot` |
 | Super + q | Ask the focused window to close |
 | Super + Right / Left | Focus the column to the right / left |
 | Super + Up / Super + Down | Focus the row above / below within a column |
@@ -247,7 +249,7 @@ river -c './target/release/slopwm --config /absolute/path/config.yml'
 | Super + = / Super + - | Add / subtract 10 percentage points of width |
 | Super + Ctrl + Left / Right / Up / Down | Preselect the next window's insertion direction |
 | Super + Ctrl + Escape | Cancel spawn preselection |
-| Super + Escape | Exit the entire Wayland session |
+| Super + Shift + Escape | Exit the entire Wayland session |
 | Click a window | Focus and raise it |
 
 All focus shortcuts stop at the edges. Super + arrows selects windows;

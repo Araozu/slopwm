@@ -75,6 +75,10 @@ keybindings:
   "Super+space":
     spawn: [foot]
 
+  # Start a terminal with the Enter key as well (Super is the Windows key).
+  "Super+Return":
+    spawn: [foot]
+
   # Ask the focused application window to close.
   "Super+q": close
 
@@ -143,11 +147,11 @@ keybindings:
   "Super+Ctrl+Escape": preselect-cancel
 
   # Exit the entire Wayland session.
-  "Super+Escape": exit
+  "Super+Shift+Escape": exit
 
   # Optional bindings: uncomment within this map; install the commands you use.
   # The terminal title below is passed as one argument, including its space.
-  # "Super+Return": {spawn: [foot, --title, "My terminal"]}
+  # "Super+Shift+space": {spawn: [foot, --title, "My terminal"]}
   # "Super+d": {spawn: [fuzzel]}
 
   # Shell syntax (such as $HOME, pipes, or redirection) needs an explicit shell.

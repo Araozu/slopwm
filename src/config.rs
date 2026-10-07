@@ -110,6 +110,7 @@ impl Default for Config {
     fn default() -> Self {
         let keybindings = [
             ("Super+space", Action::Spawn(vec!["foot".into()])),
+            ("Super+Return", Action::Spawn(vec!["foot".into()])),
             ("Super+q", Action::Close),
             ("Super+Right", Action::FocusNext),
             ("Super+Left", Action::FocusPrevious),
@@ -135,7 +136,7 @@ impl Default for Config {
             ("Super+Ctrl+Up", Action::Preselect(SpawnDirection::Up)),
             ("Super+Ctrl+Down", Action::Preselect(SpawnDirection::Down)),
             ("Super+Ctrl+Escape", Action::CancelPreselection),
-            ("Super+Escape", Action::Exit),
+            ("Super+Shift+Escape", Action::Exit),
         ]
         .into_iter()
         .map(|(chord, action)| {
