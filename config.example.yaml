@@ -2,7 +2,7 @@
 # Complete reference for every supported setting and keybinding action.
 # Active values below match the built-in defaults.
 #
-# Copy to $XDG_CONFIG_HOME/slopwm/config.yaml, or ~/.config/slopwm/config.yaml
+# Copy to $XDG_CONFIG_HOME/slopwm/config.yml, or ~/.config/slopwm/config.yml
 # when XDG_CONFIG_HOME is unset or invalid. Alternatively, pass --config PATH.
 # Validate without Wayland: cargo run -- --config config.example.yaml --check-config
 # Configuration is read at startup; restart slopwm after editing it.

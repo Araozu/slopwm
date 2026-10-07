@@ -330,7 +330,7 @@ fn default_path(xdg_config_home: Option<OsString>, home: Option<OsString>) -> Op
                 .filter(|path| path.is_absolute())
                 .map(|path| path.join(".config"))
         })?;
-    Some(config_home.join("slopwm/config.yaml"))
+    Some(config_home.join("slopwm/config.yml"))
 }
 
 fn parse_chord(chord: &str) -> Result<(u32, Modifiers), String> {
@@ -635,12 +635,12 @@ mod tests {
         let home = Some(OsString::from("/home/test"));
         assert_eq!(
             default_path(Some("/tmp/config".into()), home.clone()),
-            Some("/tmp/config/slopwm/config.yaml".into())
+            Some("/tmp/config/slopwm/config.yml".into())
         );
         for xdg in [None, Some("".into()), Some("relative".into())] {
             assert_eq!(
                 default_path(xdg, home.clone()),
-                Some("/home/test/.config/slopwm/config.yaml".into())
+                Some("/home/test/.config/slopwm/config.yml".into())
             );
         }
         assert_eq!(default_path(None, None), None);

@@ -52,15 +52,15 @@ WAYLAND_DEBUG=1 river -c ./target/debug/slopwm
 
 ## Configuration
 
-slopwm reads YAML from `$XDG_CONFIG_HOME/slopwm/config.yaml`, falling back to
-`~/.config/slopwm/config.yaml` when `XDG_CONFIG_HOME` is unset or invalid.
+slopwm reads YAML from `$XDG_CONFIG_HOME/slopwm/config.yml`, falling back to
+`~/.config/slopwm/config.yml` when `XDG_CONFIG_HOME` is unset or invalid.
 The [example config](config.example.yaml) documents every supported setting and
 keybinding action, with defaults and commented customization examples. Copy it
 to get started:
 
 ```sh
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/slopwm"
-cp config.example.yaml "${XDG_CONFIG_HOME:-$HOME/.config}/slopwm/config.yaml"
+cp config.example.yaml "${XDG_CONFIG_HOME:-$HOME/.config}/slopwm/config.yml"
 ```
 
 ```yaml
@@ -222,7 +222,7 @@ restart slopwm to apply changes.
 For a custom file, pass the command and its arguments together to River:
 
 ```sh
-river -c './target/release/slopwm --config /absolute/path/config.yaml'
+river -c './target/release/slopwm --config /absolute/path/config.yml'
 ```
 
 ## Default controls

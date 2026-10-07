@@ -19,7 +19,7 @@ const HELP: &str = "Usage: slopwm [--config PATH] [--check-config]
       --check-config Validate configuration and exit without connecting to Wayland
   -h, --help        Show this help
 
-Default: $XDG_CONFIG_HOME/slopwm/config.yaml or $HOME/.config/slopwm/config.yaml.
+Default: $XDG_CONFIG_HOME/slopwm/config.yml or $HOME/.config/slopwm/config.yml.
 If the default file is absent, built-in keyboard shortcuts are used.";
 
 #[derive(Debug, Default)]
