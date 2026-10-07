@@ -17,15 +17,22 @@ keyboard:
   # Nonnegative integer in milliseconds before repeating starts. Default: 400.
   repeat_delay: 400
 
-# Window borders. Omitting this section or either field uses its default.
+# Window borders. Omitting this section or any field uses its default.
+# Both colors accept alpha via "#RRGGBBAA".
 border:
   # Nonnegative integer in logical pixels; 0 disables borders. Default: 2.
   # Borders are included in tile dimensions and shrink on very small tiles.
   width: 2
 
-  # Quoted "#RRGGBB" or "#RRGGBBAA"; AA is alpha (00 transparent, ff opaque).
+  # Focused window border. Quoted "#RRGGBB" or "#RRGGBBAA";
+  # AA is alpha (00 transparent, ff opaque).
   # Default: "#ffffff" (opaque white). True fullscreen suppresses borders.
   color: "#ffffff"
+
+  # Unfocused window border. Same "#RRGGBB"/"#RRGGBBAA" syntax with alpha.
+  # Default: "#808080ff" (opaque gray). Only the active monitor's selected
+  # window uses `color`; every other visible tile uses this color.
+  unfocused_color: "#808080ff"
 
 # Scrolling layout. Omitting this section or either field uses its default.
 scrolling:
@@ -90,6 +97,16 @@ keybindings:
   # Focus the row above/below in the current column, stopping at the top/bottom.
   "Super+Up": focus-up
   "Super+Down": focus-down
+
+  # Move the focused column (with all its stacked rows) one step right/left
+  # within the active workspace. Stops at either end of the strip.
+  "Super+Ctrl+Shift+Right": move-next
+  "Super+Ctrl+Shift+Left": move-previous
+
+  # Center the focused column in the monitor, or align its right edge to the
+  # 99% mark (1% peek margin on the right). Both keep the 1% left/right peeks.
+  "Super+c": center-window
+  "Super+Shift+c": align-window-right
 
   # Move the focused window into the column to the right/left, below its rows.
   # Rows share the target column's width and split its height equally.

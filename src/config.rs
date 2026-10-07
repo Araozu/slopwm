@@ -79,6 +79,24 @@ impl Default for ScrollingConfig {
 pub(crate) struct BorderConfig {
     pub(crate) width: i32,
     pub(crate) color: [u32; 4],
+    pub(crate) unfocused_color: [u32; 4],
+}
+
+fn default_border_width() -> i32 {
+    2
+}
+
+fn default_border_color() -> String {
+    "#ffffff".into()
+}
+
+fn default_unfocused_color() -> String {
+    "#808080ff".into()
+}
+
+fn default_unfocused_pixels() -> [u32; 4] {
+    // Opaque medium gray, premultiplied to match `parse_color("#808080ff")`.
+    [0x80808080, 0x80808080, 0x80808080, u32::MAX]
 }
 
 impl Default for BorderConfig {
@@ -86,6 +104,7 @@ impl Default for BorderConfig {
         Self {
             width: 2,
             color: [u32::MAX; 4],
+            unfocused_color: default_unfocused_pixels(),
         }
     }
 }
@@ -93,15 +112,20 @@ impl Default for BorderConfig {
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct FileBorder {
+    #[serde(default = "default_border_width")]
     width: i32,
+    #[serde(default = "default_border_color")]
     color: String,
+    #[serde(default = "default_unfocused_color")]
+    unfocused_color: String,
 }
 
 impl Default for FileBorder {
     fn default() -> Self {
         Self {
-            width: 2,
-            color: "#ffffff".into(),
+            width: default_border_width(),
+            color: default_border_color(),
+            unfocused_color: default_unfocused_color(),
         }
     }
 }
@@ -116,9 +140,13 @@ impl Default for Config {
             ("Super+Left", Action::FocusPrevious),
             ("Super+Up", Action::FocusUp),
             ("Super+Down", Action::FocusDown),
+            ("Super+Ctrl+Shift+Right", Action::MoveNext),
+            ("Super+Ctrl+Shift+Left", Action::MovePrevious),
             ("Super+Shift+Right", Action::StackNext),
             ("Super+Shift+Left", Action::StackPrevious),
             ("Super+u", Action::Unstack),
+            ("Super+c", Action::CenterWindow),
+            ("Super+Shift+c", Action::AlignWindowRight),
             ("Super+Alt+Right", Action::FocusOutputNext),
             ("Super+Alt+Left", Action::FocusOutputPrevious),
             ("Super+Alt+Shift+Right", Action::MoveToOutputNext),
@@ -260,7 +288,10 @@ impl Config {
             keyboard: file.keyboard,
             border: BorderConfig {
                 width: file.border.width,
-                color: parse_color(&file.border.color)?,
+                color: parse_color(&file.border.color)
+                    .map_err(|error| ConfigError(format!("border.color: {error}")))?,
+                unfocused_color: parse_color(&file.border.unfocused_color)
+                    .map_err(|error| ConfigError(format!("border.unfocused_color: {error}")))?,
             },
             scrolling: file.scrolling,
             monitors: file.monitors,
@@ -304,9 +335,7 @@ impl Config {
 fn parse_color(color: &str) -> Result<[u32; 4], ConfigError> {
     let hex = color.strip_prefix('#').unwrap_or_default();
     if !matches!(hex.len(), 6 | 8) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(ConfigError(
-            "border.color must be '#RRGGBB' or '#RRGGBBAA'".into(),
-        ));
+        return Err(ConfigError("must be '#RRGGBB' or '#RRGGBBAA'".into()));
     }
     let mut channels = [255_u32; 4];
     for (index, pair) in hex.as_bytes().chunks_exact(2).enumerate() {
@@ -379,9 +408,13 @@ fn parse_action(action: BindingAction) -> Result<Action, String> {
             "focus-previous" => Ok(Action::FocusPrevious),
             "focus-up" => Ok(Action::FocusUp),
             "focus-down" => Ok(Action::FocusDown),
+            "move-next" => Ok(Action::MoveNext),
+            "move-previous" => Ok(Action::MovePrevious),
             "stack-next" => Ok(Action::StackNext),
             "stack-previous" => Ok(Action::StackPrevious),
             "unstack" => Ok(Action::Unstack),
+            "center-window" => Ok(Action::CenterWindow),
+            "align-window-right" => Ok(Action::AlignWindowRight),
             "focus-output-next" => Ok(Action::FocusOutputNext),
             "focus-output-previous" => Ok(Action::FocusOutputPrevious),
             "move-to-output-next" => Ok(Action::MoveToOutputNext),
@@ -533,6 +566,28 @@ mod tests {
         assert_eq!(config.keybindings, Config::default().keybindings);
         assert_eq!(config.border.width, 4);
         assert_eq!(config.border.color, [0x80808080, 0, 0, 0x80808080]);
+        // Unspecified unfocused color falls back to its default, and partial
+        // border maps keep working.
+        assert_eq!(
+            config.border.unfocused_color,
+            Config::default().border.unfocused_color
+        );
+        assert_eq!(
+            Config::parse("border: {width: 4}").unwrap().border.color,
+            Config::default().border.color
+        );
+        assert_eq!(
+            Config::parse("border: {width: 4}")
+                .unwrap()
+                .border
+                .unfocused_color,
+            Config::default().border.unfocused_color
+        );
+        let both =
+            Config::parse("border: {width: 2, color: '#ff000080', unfocused_color: '#00ff0080'}")
+                .unwrap();
+        assert_eq!(both.border.color, [0x80808080, 0, 0, 0x80808080]);
+        assert_eq!(both.border.unfocused_color, [0, 0x80808080, 0, 0x80808080]);
         assert_eq!(config.scrolling.default_width_percent, 40);
         assert_eq!(
             config.growth_direction(Some("DP-1")),
@@ -555,6 +610,9 @@ mod tests {
             "border: {width: -1}",
             "border: {color: '#12345'}",
             "border: {color: '#gggggg'}",
+            "border: {unfocused_color: '#12345'}",
+            "border: {unfocused_color: '#gggggg'}",
+            "border: {unfocused_color: '#ffffff', typo: 1}",
             "border: {color: '#ffffff', typo: 1}",
             "scrolling: {default_width_percent: 0}",
             "scrolling: {default_width_percent: 99}",
@@ -571,6 +629,15 @@ mod tests {
         }
         let config = Config::parse("keybindings: {F1: {change-width-percent: -7}}").unwrap();
         assert_eq!(config.keybindings[0].action, Action::ChangeWidthPercent(-7));
+        for (name, expected) in [
+            ("move-next", Action::MoveNext),
+            ("move-previous", Action::MovePrevious),
+            ("center-window", Action::CenterWindow),
+            ("align-window-right", Action::AlignWindowRight),
+        ] {
+            let config = Config::parse(&format!("keybindings: {{F1: {name}}}")).unwrap();
+            assert_eq!(config.keybindings[0].action, expected, "{name}");
+        }
     }
 
     #[test]

@@ -7,7 +7,11 @@ use wayland_backend::client::ObjectId;
 use crate::action::SpawnDirection;
 use crate::protocol::river_window_v1::RiverWindowV1;
 
-use super::{WindowManager, layout::TileGeometry, layout::scrolling_tiles, output::OutputGeometry};
+use super::{
+    WindowManager,
+    layout::{TileGeometry, inset_for, pixel_widths, place_tiles},
+    output::OutputGeometry,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Preselection {
@@ -85,8 +89,8 @@ impl WindowManager {
             }
         } else {
             // An empty output has no anchor yet; preview its initial tile.
-            *scrolling_tiles(output, &[self.config.scrolling.default_width_percent], 0, 0)
-                .first()?
+            let widths = pixel_widths(output.width, &[self.config.scrolling.default_width_percent]);
+            *place_tiles(output, &widths, inset_for(output.width), 0).first()?
         };
         Preview::for_tile(tile, output, selection.direction)
     }

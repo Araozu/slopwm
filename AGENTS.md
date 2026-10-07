@@ -25,6 +25,31 @@ of River. Read `README.md` for usage and `docs/README.md` for development notes.
 - Preserve existing SPDX attribution and unrelated working-tree changes.
   Stage only files belonging to the requested task.
 
+## Scrolling viewport rules
+
+- The usable logical area is always 98% of the physical monitor width, with a
+  1% peek margin on the left and right that renders scrolled-away neighbors.
+  Within those margins slopwm behaves like a regular scrolling WM.
+- Each workspace stores its own scroll offset (`Workspace::scroll`). New strips
+  start at the 1% left inset. Focusing, opening, closing, resizing, or moving
+  a column keeps the previous scroll when the focused tile already fits, and
+  otherwise moves only as far as needed to bring it fully into view.
+- `center-window` centers the focused column; `align-window-right` puts its
+  right edge at the 99% mark. `move-next` / `move-previous` reorder whole
+  columns (stacks move together) and stop at the ends.
+- `src/wm/layout.rs` stays pure (pixel math, minimal-scroll, centering);
+  `src/wm/columns.rs` owns scroll state and column order; `src/wm/workspaces.rs`
+  owns per-workspace scroll persistence across reconcile/import.
+
+## Borders and keyboard repeat
+
+- `border.color` is the focused tile; `border.unfocused_color` is every other
+  visible tile. Both accept `"#RRGGBB"` and `"#RRGGBBAA"` (alpha supported).
+- `keyboard.repeat_rate` (repeats/sec, `0` disables) and
+  `keyboard.repeat_delay` (ms before repeat) apply globally to all keyboards,
+  including hotplugged ones. Both are documented in `README.md` and present in
+  `config.example.yaml`; shortcuts themselves never repeat.
+
 ## Preferences
 
 - Focus never follows mouse. Explicit keybinds will change focus on window or screen

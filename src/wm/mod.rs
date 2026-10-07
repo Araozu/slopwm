@@ -107,6 +107,13 @@ impl WindowManager {
         shm: &wayland_client::protocol::wl_shm::WlShm,
         qh: &QueueHandle<AppData>,
     ) {
+        let focused = self
+            .active_output
+            .as_ref()
+            .and_then(|id| self.outputs.get(id))
+            .and_then(|output| output.workspaces.current().focused.clone());
+        let (focused_color, unfocused_color) =
+            (self.config.border.color, self.config.border.unfocused_color);
         for window in &mut self.windows {
             let output = window
                 .output
@@ -114,7 +121,12 @@ impl WindowManager {
                 .and_then(|id| self.outputs.get(id))
                 .filter(|output| output.workspaces.current().id == window.workspace)
                 .map(|output| output.geometry);
-            window.render(output, self.config.border.color);
+            let color = if Some(&window.proxy) == focused.as_ref() {
+                focused_color
+            } else {
+                unfocused_color
+            };
+            window.render(output, color);
         }
         let preview = self.preselection_preview();
         if preview.is_some() && self.overlay.is_none() {
@@ -197,7 +209,7 @@ impl WindowManager {
                 }) {
                     migrated.insert(
                         (Some(detached.output), detached.workspace.id),
-                        workspaces.import(detached.workspace.focused),
+                        workspaces.import(detached.workspace.focused, detached.workspace.scroll),
                     );
                 }
             }
@@ -213,7 +225,7 @@ impl WindowManager {
                 let origin = (window.output.clone(), window.workspace);
                 let workspace = *migrated
                     .entry(origin.clone())
-                    .or_insert_with(|| workspaces.import(None));
+                    .or_insert_with(|| workspaces.import(None, None));
                 if origin.0 == old_active && Some(origin.1) == old_workspace {
                     workspaces.activate(workspace);
                 }

@@ -8,7 +8,12 @@ use crate::action::SpawnDirection;
 use crate::config::GrowthDirection;
 use crate::protocol::river_window_v1::RiverWindowV1;
 
-use super::{WindowManager, layout::scrolling_tiles, preselection::Preselection, window::Window};
+use super::{
+    WindowManager,
+    layout::{centered_scroll, inset_for, pixel_widths, right_aligned_scroll, scrolling_tiles},
+    preselection::Preselection,
+    window::Window,
+};
 
 struct FocusedColumn {
     columns: Vec<Vec<usize>>,
@@ -416,12 +421,44 @@ impl WindowManager {
         }
     }
 
+    fn workspace_widths(&self, columns: &[Vec<usize>]) -> Vec<u8> {
+        columns
+            .iter()
+            .map(|rows| {
+                if rows
+                    .iter()
+                    .copied()
+                    .any(|index| self.windows[index].tile_width.soft_fullscreen)
+                {
+                    98
+                } else {
+                    self.windows[rows[0]].tile_width.percent()
+                }
+            })
+            .collect()
+    }
+
     pub(super) fn layout_windows(&mut self) {
-        let outputs: Vec<_> = self.outputs.keys().cloned().collect();
-        for id in outputs {
-            let output = &self.outputs[&id];
-            for workspace in &output.workspaces.entries {
-                let columns = self.column_indices(&id, workspace.id);
+        let output_ids: Vec<_> = self.outputs.keys().cloned().collect();
+        for id in output_ids {
+            let (geometry, border_width) = {
+                let output = &self.outputs[&id];
+                (output.geometry, self.config.border.width)
+            };
+            if geometry.width <= 0 || geometry.height <= 0 {
+                continue;
+            }
+            let workspace_ids: Vec<u64> = self.outputs[&id]
+                .workspaces
+                .entries
+                .iter()
+                .map(|workspace| workspace.id)
+                .collect();
+            for workspace_id in workspace_ids {
+                let columns = self.column_indices(&id, workspace_id);
+                if columns.is_empty() {
+                    continue;
+                }
                 let soft: Vec<_> = columns
                     .iter()
                     .map(|rows| {
@@ -430,27 +467,37 @@ impl WindowManager {
                             .find(|index| self.windows[*index].tile_width.soft_fullscreen)
                     })
                     .collect();
-                let widths: Vec<_> = columns
-                    .iter()
-                    .zip(&soft)
-                    .map(|(rows, soft)| {
-                        if soft.is_some() {
-                            98
-                        } else {
-                            self.windows[rows[0]].tile_width.percent()
-                        }
-                    })
-                    .collect();
+                let widths = self.workspace_widths(&columns);
+                let (focused_proxy, prev_scroll) = {
+                    let workspace = self.outputs[&id]
+                        .workspaces
+                        .entries
+                        .iter()
+                        .find(|workspace| workspace.id == workspace_id)
+                        .unwrap();
+                    (workspace.focused.clone(), workspace.scroll)
+                };
                 let focused = columns
                     .iter()
                     .position(|rows| {
                         rows.iter().any(|index| {
-                            Some(&self.windows[*index].proxy) == workspace.focused.as_ref()
+                            Some(&self.windows[*index].proxy) == focused_proxy.as_ref()
                         })
                     })
                     .unwrap_or(0);
-                let tiles =
-                    scrolling_tiles(output.geometry, &widths, focused, self.config.border.width);
+                let prev = prev_scroll.unwrap_or_else(|| inset_for(geometry.width));
+                let (tiles, scroll) =
+                    scrolling_tiles(geometry, &widths, focused, border_width, prev);
+                {
+                    let workspace = self.outputs.get_mut(&id).unwrap();
+                    let entry = workspace
+                        .workspaces
+                        .entries
+                        .iter_mut()
+                        .find(|workspace| workspace.id == workspace_id)
+                        .unwrap();
+                    entry.scroll = Some(scroll);
+                }
                 for ((rows, soft), tile) in columns.into_iter().zip(soft).zip(tiles) {
                     if let Some(selected) = soft {
                         for index in rows {
@@ -464,6 +511,110 @@ impl WindowManager {
                     }
                 }
             }
+        }
+    }
+
+    fn focused_scroll_target(&mut self, compute: impl FnOnce(i32, &[i64], usize) -> Option<i64>) {
+        let Some(output_id) = self.active_output.clone() else {
+            return;
+        };
+        let (geometry, workspace_id) = {
+            let Some(output) = self.outputs.get(&output_id) else {
+                return;
+            };
+            (output.geometry, output.workspaces.current().id)
+        };
+        if geometry.width <= 0 {
+            return;
+        }
+        let columns = self.column_indices(&output_id, workspace_id);
+        if columns.is_empty() {
+            return;
+        }
+        let focused_proxy = self.outputs[&output_id]
+            .workspaces
+            .current()
+            .focused
+            .clone();
+        let focused = columns
+            .iter()
+            .position(|rows| {
+                rows.iter()
+                    .any(|index| Some(&self.windows[*index].proxy) == focused_proxy.as_ref())
+            })
+            .unwrap_or(0);
+        let widths = self.workspace_widths(&columns);
+        let widths_px = pixel_widths(geometry.width, &widths);
+        let Some(scroll) = compute(geometry.width, &widths_px, focused) else {
+            return;
+        };
+        let output = self.outputs.get_mut(&output_id).unwrap();
+        output.workspaces.current_mut().scroll = Some(scroll);
+    }
+
+    pub(super) fn center_window(&mut self) {
+        self.focused_scroll_target(|width, sizes, focused| centered_scroll(width, sizes, focused));
+    }
+
+    pub(super) fn align_window_right(&mut self) {
+        self.focused_scroll_target(|width, sizes, focused| {
+            right_aligned_scroll(width, sizes, focused)
+        });
+    }
+
+    /// Move the focused column one step left/right, keeping its stacked rows
+    /// together. Stops at either end of the strip.
+    pub(super) fn move_column(&mut self, previous: bool) {
+        let Some(FocusedColumn {
+            columns,
+            column,
+            row: _,
+        }) = self.focused_column()
+        else {
+            return;
+        };
+        let Some(target) = adjacent_index(column, columns.len(), previous) else {
+            return;
+        };
+        // Reorder the two adjacent columns in the global deque by removing
+        // both blocks and reinserting them swapped at the earliest position.
+        // Unrelated workspaces keep their relative order; the moved columns
+        // become contiguous, which also defragments previously interleaved
+        // strips.
+        let focused_id = self.windows[columns[column][0]].column;
+        let target_id = self.windows[columns[target][0]].column;
+        let mut indices: Vec<usize> = columns[column]
+            .iter()
+            .chain(columns[target].iter())
+            .copied()
+            .collect();
+        indices.sort_unstable();
+        let at = indices[0];
+        let mut removed = Vec::with_capacity(indices.len());
+        for index in indices.into_iter().rev() {
+            removed.push(self.windows.remove(index).unwrap());
+        }
+        removed.reverse();
+        let mut focused_block = Vec::new();
+        let mut target_block = Vec::new();
+        for window in removed {
+            if window.column == focused_id {
+                focused_block.push(window);
+            } else if window.column == target_id {
+                target_block.push(window);
+            } else {
+                // Only the two moved columns were removed.
+                debug_assert!(false, "unexpected column in move");
+                target_block.push(window);
+            }
+        }
+        let ordered: Vec<_> = if previous {
+            focused_block.into_iter().chain(target_block).collect()
+        } else {
+            target_block.into_iter().chain(focused_block).collect()
+        };
+        for (offset, window) in ordered.into_iter().enumerate() {
+            self.windows.insert(at + offset, window);
         }
     }
 }

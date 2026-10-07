@@ -20,9 +20,9 @@ and per-monitor growth directions.
 | `src/wm/seat.rs` | Seat state, focus policy, action execution, and seat-event dispatch |
 | `src/wm/bindings.rs` | Configured keyboard bindings, binding lifecycle, and event dispatch |
 | `src/wm/input.rs` | Global keyboard repeat configuration and input-device lifecycle |
-| `src/wm/columns.rs` | Column ordering, stack/unstack, focus navigation, and layout policy |
-| `src/wm/workspaces.rs` | Per-output dynamic workspace lifecycle, remembered focus, navigation, and window moves |
-| `src/wm/layout.rs` | Pure scrolling geometry, borders, width state, and vertical splitting |
+| `src/wm/columns.rs` | Column ordering, stack/unstack, focus navigation, column moves, scroll/center/right policy, and layout policy |
+| `src/wm/workspaces.rs` | Per-output dynamic workspace lifecycle, remembered focus/scroll, navigation, and window moves |
+| `src/wm/layout.rs` | Pure scrolling geometry, minimal-scroll/center/right math, borders, width state, and vertical splitting |
 | `src/wm/preselection.rs` | One-shot spawn targets, cancellation, and clipped directional preview geometry |
 | `src/wm/overlay.rs` | Input-transparent River shell surface, shared-memory drawing, and synchronized commits |
 | `protocol/*.xml` | Reviewed protocol definitions with their original notices |
@@ -68,12 +68,20 @@ manage/render rules.
    allocations. Parent metadata prevents dialogs from consuming a pending spawn
    selection; general dialog placement remains future work.
 4. **Scrolling layout.** Stable-width columns grow left by default, with
-   per-monitor overrides. Stack/unstack actions support vertical rows. The
-   focused column keeps a 1% left inset; soft fullscreen occupies 98% width and
-   full height, while true fullscreen delegates to River. Each monitor has
-   dynamic workspaces with up/down navigation and window moves. Empty workspaces
-   are pruned above a single trailing empty workspace; output removal preserves
-   occupied workspace groups on a surviving output.
+   per-monitor overrides. Stack/unstack actions support vertical rows. Each
+   workspace keeps its own scroll offset within a 98% logical area (1% peek
+   margins left/right): focus/open/close/resize/move keeps the scroll when the
+   focused tile fits and otherwise moves only as far as needed. `center-window`
+   centers the focused column, `align-window-right` puts its right edge at 99%,
+   and `move-next`/`move-previous` reorder whole columns. Soft fullscreen
+   occupies 98% width and full height, while true fullscreen delegates to
+   River. Borders use `border.color` for the focused tile and
+   `border.unfocused_color` otherwise (both with alpha). Keyboard
+   `repeat_rate`/`repeat_delay` apply globally, including hotplug. Each monitor
+   has dynamic workspaces with up/down navigation and window moves
+   (`move-to-output-*`, `move-to-workspace-*`). Empty workspaces are pruned
+   above a single trailing empty workspace; output removal preserves occupied
+   workspace groups (including scroll) on a surviving output.
    Direction preselection inserts the next regular window
    beside a column or row, with a manager-owned shell surface marking the side.
 5. **Make daily operation predictable.** Add useful diagnostics, configuration

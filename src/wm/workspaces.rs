@@ -14,6 +14,10 @@ use super::WindowManager;
 pub(super) struct Workspace {
     pub(super) id: u64,
     pub(super) focused: Option<RiverWindowV1>,
+    /// Strip origin relative to the output's left edge. `None` means the next
+    /// layout starts at the 1% left inset; otherwise minimal-scroll keeps a
+    /// fitting focused tile stationary.
+    pub(super) scroll: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -35,6 +39,7 @@ impl Default for Workspaces {
             entries: vec![Workspace {
                 id: 0,
                 focused: None,
+                scroll: None,
             }],
             active: 0,
             next_id: 1,
@@ -69,11 +74,18 @@ impl Workspaces {
     }
 
     // Imported occupied workspaces go immediately above the trailing empty one.
-    pub(super) fn import(&mut self, focused: Option<RiverWindowV1>) -> u64 {
+    pub(super) fn import(&mut self, focused: Option<RiverWindowV1>, scroll: Option<i64>) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         let index = self.entries.len() - 1;
-        self.entries.insert(index, Workspace { id, focused });
+        self.entries.insert(
+            index,
+            Workspace {
+                id,
+                focused,
+                scroll,
+            },
+        );
         if self.active >= index {
             self.active += 1;
         }
@@ -96,6 +108,7 @@ impl Workspaces {
             self.entries.push(Workspace {
                 id: self.next_id,
                 focused: None,
+                scroll: None,
             });
             self.next_id += 1;
         }
@@ -294,10 +307,19 @@ mod tests {
         let mut workspaces = Workspaces::default();
         workspaces.reconcile(&HashSet::from([0]));
         workspaces.activate(1);
-        let imported = workspaces.import(None);
+        let imported = workspaces.import(None, Some(42));
         workspaces.reconcile(&HashSet::from([0, imported]));
         assert_eq!(ids(&workspaces), [0, imported, 1]);
         assert_eq!(workspaces.current().id, 1);
         assert_eq!(workspaces.adjacent(true), Some(imported));
+        assert_eq!(
+            workspaces
+                .entries
+                .iter()
+                .find(|workspace| workspace.id == imported)
+                .unwrap()
+                .scroll,
+            Some(42)
+        );
     }
 }

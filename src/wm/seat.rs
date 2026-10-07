@@ -66,10 +66,15 @@ impl Seat {
                 Action::FocusUp | Action::FocusDown => {
                     wm.focus_vertical(matches!(action, Action::FocusUp));
                 }
+                Action::MoveNext | Action::MovePrevious => {
+                    wm.move_column(matches!(action, Action::MovePrevious));
+                }
                 Action::StackNext | Action::StackPrevious => {
                     wm.stack_window(matches!(action, Action::StackPrevious));
                 }
                 Action::Unstack => wm.unstack_window(),
+                Action::CenterWindow => wm.center_window(),
+                Action::AlignWindowRight => wm.align_window_right(),
                 Action::Preselect(direction) => wm.preselect(direction),
                 Action::CancelPreselection => wm.preselection = None,
                 Action::ChangeWidthPercent(delta) => {

@@ -15,13 +15,19 @@ There is always one empty workspace at the bottom; using it creates a new empty
 one below. Empty workspaces above it disappear automatically. Switching
 workspaces affects only the active monitor and stops at the top or bottom.
 
-The focused tile's left edge always sits 1% of the monitor width from its left
-edge, even for a lone window. Tiles fill the monitor height, including their
-borders. Soft fullscreen uses 98% of the monitor width and restores the previous
-width and vertical stack when toggled off. Adjacent scrolled-away windows peek
-through the remaining margins. True fullscreen delegates geometry to River and
-covers the whole monitor; leaving it restores the tile. Selecting another tile
-in the same workspace also leaves true fullscreen.
+Each workspace remembers its own scroll offset. The usable logical area is
+98% of the monitor width, with a 1% peek margin on the left and right that
+keeps scrolled-away neighbors visible. Within that area slopwm behaves like a
+regular scrolling WM: if the focused tile already fits without moving, the
+strip stays where it is; otherwise it moves only as far as needed to bring the
+focused tile fully into view. A lone window starts at the 1% left inset.
+Tiles fill the monitor height, including their borders. Soft fullscreen uses
+98% of the monitor width and restores the previous width and vertical stack
+when toggled off. `center-window` centers the focused column, and
+`align-window-right` puts its right edge at the 99% mark. True fullscreen
+delegates geometry to River and covers the whole monitor; leaving it restores
+the tile. Selecting another tile in the same workspace also leaves true
+fullscreen.
 
 The active monitor stays fixed until an explicit monitor shortcut, a window
 click, or output removal changes it. Moving the pointer never changes keyboard
@@ -65,7 +71,7 @@ cp config.example.yaml "${XDG_CONFIG_HOME:-$HOME/.config}/slopwm/config.yml"
 
 ```yaml
 keyboard: {repeat_rate: 40, repeat_delay: 400}
-border: {width: 2, color: "#ffffff"}
+border: {width: 2, color: "#ffffff", unfocused_color: "#808080ff"}
 scrolling: {growth_direction: left, default_width_percent: 50}
 monitors:
   DP-1: {growth_direction: right}
@@ -78,9 +84,13 @@ keybindings:
   "Super+Left": focus-previous
   "Super+Up": focus-up
   "Super+Down": focus-down
+  "Super+Ctrl+Shift+Right": move-next
+  "Super+Ctrl+Shift+Left": move-previous
   "Super+Shift+Right": stack-next
   "Super+Shift+Left": stack-previous
   "Super+u": unstack
+  "Super+c": center-window
+  "Super+Shift+c": align-window-right
   "Super+Alt+Right": focus-output-next
   "Super+Alt+Left": focus-output-previous
   "Super+Alt+Shift+Right": move-to-output-next
@@ -113,9 +123,12 @@ after startup. Omitted fields use their defaults. These settings control repeat
 in applications; window-manager shortcuts trigger once per press.
 
 `border.width` is a nonnegative number of logical pixels; `0` disables borders.
-Colors accept quoted `"#RRGGBB"` or `"#RRGGBBAA"` values. Border space is included
-in tile dimensions. Borders shrink on tiny tiles so content dimensions remain
-positive, and River suppresses them in true fullscreen.
+`border.color` (focused) and `border.unfocused_color` both accept quoted
+`"#RRGGBB"` or `"#RRGGBBAA"` values, where `AA` is alpha (`00` transparent,
+`ff` opaque). Only the active monitor's selected window uses the focused
+color; every other visible tile uses the unfocused color. Border space is
+included in tile dimensions. Borders shrink on tiny tiles so content dimensions
+remain positive, and River suppresses them in true fullscreen.
 
 `scrolling.default_width_percent` sets new tile widths, from `1` through `98`.
 `scrolling.growth_direction` accepts `left` (the default) or `right`. The
@@ -123,7 +136,8 @@ positive, and River suppresses them in true fullscreen.
 or `HDMI-A-1`. Unlisted monitors use the global setting. Output names require
 `wl_output` version 4; older outputs use the global setting.
 
-Actions include `close`, `focus-next`, `focus-previous`, `focus-output-next`,
+Actions include `close`, `focus-next`, `focus-previous`, `move-next`,
+`move-previous`, `center-window`, `align-window-right`, `focus-output-next`,
 `focus-output-previous`, `toggle-soft-fullscreen`, `toggle-fullscreen`, and
 `exit` (which exits the entire Wayland session). Column focus moves in physical
 left-to-right order within the active workspace. Monitor focus follows River's
@@ -131,6 +145,12 @@ output positions and remembers each monitor's selected tile, including when an
 empty monitor is selected. All seats share one keyboard focus and active
 monitor by design. All focus navigation stops at the ends; windows,
 stacked rows, monitors, and workspaces never wrap around.
+
+`move-next` / `move-previous` move the focused column (with all its stacked
+rows) one step right / left within the active workspace, stopping at either
+end. `center-window` scrolls the strip so the focused column is centered, and
+`align-window-right` scrolls it so the column's right edge sits at the 99%
+mark; both preserve the 1% peek margins.
 
 `move-to-output-next` / `move-to-output-previous` move the focused window to the
 next / previous monitor and follow it, stopping at either end. The window gets
@@ -238,8 +258,11 @@ river -c './target/release/slopwm --config /absolute/path/config.yml'
 | Super + q | Ask the focused window to close |
 | Super + Right / Left | Focus the column to the right / left |
 | Super + Up / Super + Down | Focus the row above / below within a column |
+| Super + Ctrl + Shift + Right / Left | Move the focused column (with its stack) right / left |
 | Super + Shift + Right / Left | Stack the focused window into the right / left column |
 | Super + u | Unstack the focused window into its own column |
+| Super + c | Center the focused column |
+| Super + Shift + c | Align the focused column to the right edge (99% mark) |
 | Super + Alt + Right / Left | Focus the next / previous monitor |
 | Super + Alt + Shift + Right / Left | Move the focused window to the next / previous monitor and follow it |
 | Super + Alt + Up / Down | Focus the workspace above / below on this monitor |
