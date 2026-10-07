@@ -20,6 +20,7 @@ and per-monitor growth directions.
 | `src/wm/seat.rs` | Seat state, focus policy, action execution, and seat-event dispatch |
 | `src/wm/bindings.rs` | Configured keyboard bindings, binding lifecycle, and event dispatch |
 | `src/wm/input.rs` | Global keyboard repeat configuration and input-device lifecycle |
+| `src/wm/layer.rs` | Layer-shell enablement, default output, focus exclusivity, and event dispatch |
 | `src/wm/columns.rs` | Column ordering, stack/unstack, focus navigation, and layout policy |
 | `src/wm/workspaces.rs` | Per-output dynamic workspace lifecycle, remembered focus, navigation, and window moves |
 | `src/wm/layout.rs` | Pure scrolling geometry, borders, width state, and vertical splitting |

@@ -11,8 +11,8 @@ use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use crate::action::Action;
 use crate::app::AppData;
 use crate::protocol::{
-    river_seat_v1::RiverSeatV1, river_window_manager_v1::RiverWindowManagerV1,
-    river_window_v1::RiverWindowV1,
+    river_layer_shell_seat_v1::RiverLayerShellSeatV1, river_seat_v1::RiverSeatV1,
+    river_window_manager_v1::RiverWindowManagerV1, river_window_v1::RiverWindowV1,
 };
 
 use super::{WindowManager, bindings::XkbBinding};
@@ -26,6 +26,12 @@ pub(super) struct Seat {
     pub(super) interacted: Option<RiverWindowV1>,
     pub(super) xkb_bindings: HashMap<ObjectId, XkbBinding>,
     pub(super) pending_actions: VecDeque<Action>,
+    pub(super) layer_seat: Option<RiverLayerShellSeatV1>,
+    /// A layer surface with exclusive keyboard focus (e.g. a launcher) owns
+    /// focus until River sends focus_non_exclusive or focus_none. While set,
+    /// window-manager focus requests are ignored by the compositor, so skip
+    /// sending them.
+    pub(super) layer_exclusive: bool,
 }
 
 impl Seat {
@@ -38,6 +44,8 @@ impl Seat {
             interacted: None,
             xkb_bindings: HashMap::new(),
             pending_actions: VecDeque::new(),
+            layer_seat: None,
+            layer_exclusive: false,
         }
     }
 
@@ -119,6 +127,11 @@ impl Seat {
     }
 
     pub(super) fn sync_focus(&mut self, wm: &WindowManager) {
+        // A layer surface with exclusive focus owns keyboard focus; the
+        // compositor ignores our focus requests until it releases exclusivity.
+        if self.layer_exclusive {
+            return;
+        }
         // Shared focus is intentional: every seat follows the active output's
         // selected window.
         let focused = wm

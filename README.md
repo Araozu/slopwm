@@ -50,6 +50,29 @@ For protocol logging after a debug build:
 WAYLAND_DEBUG=1 river -c ./target/debug/slopwm
 ```
 
+## Wallpaper and layer-shell clients
+
+slopwm binds River's layer-shell interface, so wallpaper daemons (`awww`,
+`swaybg`), bars, and launchers can map their surfaces. Without that binding
+River closes layer surfaces immediately, which surfaces in `awww` as
+`none of the requested outputs are valid` because the daemon ends up with no
+outputs at all.
+
+Start the daemon inside the River session so it connects to the same
+`WAYLAND_DISPLAY`, then use the output names the compositor actually reports:
+
+```sh
+awww-daemon
+awww query
+awww img -o DP-1 ~/Pictures/wallpaper.jpeg
+```
+
+If `DP-1` is rejected, `awww query` (or `wlr-randr`) shows the valid names;
+nested or headless sessions often use names like `WL-1` instead. Tiles cover
+the full output, so the wallpaper is visible in the tile margins and peeks,
+or fully on an empty workspace. Panels that reserve exclusive zones are
+currently overlapped by tiles rather than avoided.
+
 ## Configuration
 
 slopwm reads YAML from `$XDG_CONFIG_HOME/slopwm/config.yml`, falling back to

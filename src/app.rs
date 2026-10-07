@@ -12,8 +12,8 @@ use wayland_client::{
 
 use crate::config::Config;
 use crate::protocol::{
-    river_input_manager_v1::RiverInputManagerV1, river_window_manager_v1::RiverWindowManagerV1,
-    river_xkb_bindings_v1::RiverXkbBindingsV1,
+    river_input_manager_v1::RiverInputManagerV1, river_layer_shell_v1::RiverLayerShellV1,
+    river_window_manager_v1::RiverWindowManagerV1, river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
 use crate::wm::WindowManager;
 
@@ -22,6 +22,7 @@ pub(crate) struct AppData {
     river_wm: Option<RiverWindowManagerV1>,
     pub(crate) river_xkb: Option<RiverXkbBindingsV1>,
     pub(crate) river_input: Option<RiverInputManagerV1>,
+    pub(crate) river_layer_shell: Option<RiverLayerShellV1>,
     pub(crate) compositor: Option<wl_compositor::WlCompositor>,
     pub(crate) shm: Option<wl_shm::WlShm>,
     pub(crate) wm: WindowManager,
@@ -94,6 +95,17 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppData {
                     state.river_input = Some(registry.bind::<RiverInputManagerV1, _, _>(
                         name,
                         version.min(RiverInputManagerV1::interface().version),
+                        qh,
+                        (),
+                    ));
+                }
+                // Optional: older compositors may not advertise it. Without
+                // this binding River closes layer surfaces immediately, so
+                // wallpaper tools like awww cannot map any output.
+                "river_layer_shell_v1" => {
+                    state.river_layer_shell = Some(registry.bind::<RiverLayerShellV1, _, _>(
+                        name,
+                        version.min(RiverLayerShellV1::interface().version),
                         qh,
                         (),
                     ));

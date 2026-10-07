@@ -6,6 +6,7 @@
 mod bindings;
 mod columns;
 mod input;
+mod layer;
 mod layout;
 mod output;
 mod overlay;
@@ -22,9 +23,9 @@ use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use crate::app::AppData;
 use crate::config::Config;
 use crate::protocol::{
-    river_output_v1::RiverOutputV1, river_seat_v1::RiverSeatV1,
-    river_window_manager_v1::RiverWindowManagerV1, river_window_v1::RiverWindowV1,
-    river_xkb_bindings_v1::RiverXkbBindingsV1,
+    river_layer_shell_v1::RiverLayerShellV1, river_output_v1::RiverOutputV1,
+    river_seat_v1::RiverSeatV1, river_window_manager_v1::RiverWindowManagerV1,
+    river_window_v1::RiverWindowV1, river_xkb_bindings_v1::RiverXkbBindingsV1,
 };
 
 use self::{
@@ -60,12 +61,14 @@ impl WindowManager {
         &mut self,
         proxy: &RiverWindowManagerV1,
         river_xkb: &RiverXkbBindingsV1,
+        layer_shell: Option<&RiverLayerShellV1>,
         qh: &QueueHandle<AppData>,
     ) {
         self.configure_keyboards();
         self.remove_windows();
         self.remove_seats();
         self.manage_outputs();
+        self.manage_layer_shell(layer_shell, qh);
         self.reconcile_workspaces();
         self.reconcile_preselection();
         self.init_new_windows();
@@ -159,6 +162,9 @@ impl WindowManager {
                         workspace,
                     });
                 }
+                if let Some(layer_output) = output.layer_output.take() {
+                    layer_output.destroy();
+                }
                 output.proxy.destroy();
                 false
             } else {
@@ -249,6 +255,9 @@ impl WindowManager {
         self.seats.retain(|_, seat| {
             if seat.removed {
                 seat.destroy_bindings();
+                if let Some(layer_seat) = seat.layer_seat.take() {
+                    layer_seat.destroy();
+                }
                 seat.proxy.destroy();
                 false
             } else {
@@ -322,7 +331,9 @@ impl Dispatch<RiverWindowManagerV1, ()> for AppData {
                     .river_xkb
                     .as_ref()
                     .expect("river_xkb_bindings_v1 missing");
-                state.wm.handle_manage_start(proxy, xkb, qh);
+                state
+                    .wm
+                    .handle_manage_start(proxy, xkb, state.river_layer_shell.as_ref(), qh);
             }
             Event::RenderStart => state.wm.handle_render_start(
                 proxy,
