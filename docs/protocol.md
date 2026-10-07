@@ -130,6 +130,27 @@ the explicit wakeup ensures a new keyboard is configured even while idle.
 not send `done`, so configuration depends only on the immutable device type.
 The input manager is destroyed only after its `finished` event.
 
+## Layer shell
+
+Layer-shell clients (wallpapers such as `awww`/`swww` or `swaybg`, bars,
+launchers) only map their surfaces while the window manager binds
+`river_layer_shell_v1`. Without that binding River closes layer surfaces
+immediately, so wallpaper daemons end up with no outputs at all.
+
+At `manage_start`, slopwm creates one `river_layer_shell_output_v1` per live
+output and one `river_layer_shell_seat_v1` per live seat, then marks the
+active monitor (falling back to the first ordered output) with `set_default()`
+for layer surfaces that request no explicit output. Removed outputs and seats
+destroy their layer objects alongside the River objects.
+
+`non_exclusive_area` events are only observed: tiles keep using the full
+output geometry, as the protocol allows, so panels with exclusive zones are
+overlapped rather than avoided. `focus_exclusive` suppresses window-manager
+focus requests until `focus_non_exclusive` or `focus_none` releases
+exclusivity; those requests would be ignored by the compositor anyway. The
+layer-shell global is optional, so older compositors without it still run the
+manager, just without mappable layer surfaces.
+
 For interactive movement or resizing:
 
 1. Save the original geometry and start `op_start_pointer()` during manage.
@@ -184,6 +205,7 @@ user command. Track session lock events when deciding which bindings stay active
 | `river_window_manager_v1` | 4 / 4 | 5 | 4–5 |
 | `river_xkb_bindings_v1` | 2 / 1 | 3 | 1–3 |
 | `river_input_manager_v1` | — | 2 | 1–2 |
+| `river_layer_shell_v1` | — | 1 | 1 (optional) |
 
 The bundled maximums match the documentation checked on 2026-10-06 in the
 [management](https://isaacfreund.com/docs/wayland/river-window-management-v1/),
@@ -198,8 +220,10 @@ management interface version 4.
 
 slopwm preserves the demo's minimum requirements and binds the lesser of the
 advertised and generated versions. Input management version 1 or newer is also
-required for keyboard repeat settings. The imported handlers explicitly ignore the
-version-5 window/output capture-session events; capture UI remains future work.
+required for keyboard repeat settings. Layer shell version 1 is optional:
+without it the manager still runs, but layer surfaces cannot map. The
+imported handlers explicitly ignore the version-5 window/output
+capture-session events; capture UI remains future work.
 The generated XKB seat interface includes version-3 modifier watching, but the
 baseline does not create that optional object. Gate any future newer requests
 by the negotiated version. Bundling newer XML alone does not enable features

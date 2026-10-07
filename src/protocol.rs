@@ -21,11 +21,18 @@ mod interfaces {
         pub use wayland_client::protocol::__interfaces::*;
         wayland_scanner::generate_interfaces!("./protocol/river-input-management-v1.xml");
     }
+
+    pub(super) mod layer {
+        use super::rwm::*;
+        wayland_scanner::generate_interfaces!("./protocol/river-layer-shell-v1.xml");
+    }
 }
 
 use self::interfaces::input::*;
+use self::interfaces::layer::*;
 use self::interfaces::rwm::*;
 use self::interfaces::rxkb::*;
 wayland_scanner::generate_client_code!("./protocol/river-window-management-v1.xml");
 wayland_scanner::generate_client_code!("./protocol/river-xkb-bindings-v1.xml");
 wayland_scanner::generate_client_code!("./protocol/river-input-management-v1.xml");
+wayland_scanner::generate_client_code!("./protocol/river-layer-shell-v1.xml");

@@ -6,7 +6,9 @@
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 
 use crate::app::AppData;
-use crate::protocol::river_output_v1::RiverOutputV1;
+use crate::protocol::{
+    river_layer_shell_output_v1::RiverLayerShellOutputV1, river_output_v1::RiverOutputV1,
+};
 
 use super::workspaces::Workspaces;
 
@@ -15,6 +17,7 @@ pub(super) struct Output {
     pub(super) proxy: RiverOutputV1,
     pub(super) removed: bool,
     pub(super) wl_output_name: Option<u32>,
+    pub(super) layer_output: Option<RiverLayerShellOutputV1>,
     pub(super) workspaces: Workspaces,
     pub(super) geometry: OutputGeometry,
 }
@@ -25,6 +28,7 @@ impl Output {
             proxy,
             removed: false,
             wl_output_name: None,
+            layer_output: None,
             workspaces: Workspaces::default(),
             geometry: OutputGeometry::default(),
         }
